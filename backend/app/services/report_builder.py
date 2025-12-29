@@ -155,15 +155,14 @@ BUSINESS_OWNER_CORE_TAGS = [
     "인성", "정인", "편인", "학습", "브랜드"
 ]
 
-# 🔥🔥🔥 P0: 섹션 ID 기반 룰카드 가중치 태그 (새 ID 적용)
 SECTION_WEIGHT_TAGS: Dict[str, List[str]] = {
-    "business_climate": ["전체운", "종합", "핵심", "요약", "일간", "성향", "기후", "시장", "트렌드"],
-    "cashflow": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실", "선결제", "정기결제"],
-    "market_product": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래", "포지셔닝", "상품"],
-    "team_partnership": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력", "외주", "위임"],
-    "owner_risk": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식", "오프", "자동화"],
-    "sprint_12m": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기", "분기", "리뷰"],
-    "action_90d": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간", "90일", "레버"]
+    "exec": ["전체운", "종합", "핵심", "요약", "일간", "성향"],
+    "money": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
+    "business": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
+    "team": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
+    "health": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식"],
+    "calendar": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
+    "sprint": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"]
 }
 
 
@@ -182,71 +181,14 @@ class SectionSpec:
     validation_type: str = "standard"
 
 
-# 🔥🔥🔥 P0: 새로운 섹션 ID 매핑 (7개 고정)
-PREMIUM_SECTION_IDS = [
-    "business_climate",   # 1번: 2026 비즈니스 전략 기상도
-    "cashflow",           # 2번: 자본 유동성 및 현금흐름 최적화
-    "market_product",     # 3번: 시장 포지셔닝 및 상품 확장 전략
-    "team_partnership",   # 4번: 조직 확장 및 파트너십 가이드
-    "owner_risk",         # 5번: 오너 리스크 관리 및 번아웃 방어
-    "sprint_12m",         # 6번: 12개월 비즈니스 스프린트 캘린더
-    "action_90d",         # 7번: 향후 90일 매출 극대화 액션플랜
-]
-
 PREMIUM_SECTIONS: Dict[str, SectionSpec] = {
-    "business_climate": SectionSpec(id="business_climate", title="🌦️ 2026 비즈니스 전략 기상도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
-    "cashflow": SectionSpec(id="cashflow", title="💰 자본 유동성 및 현금흐름 최적화", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "market_product": SectionSpec(id="market_product", title="📍 시장 포지셔닝 및 상품 확장 전략", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "team_partnership": SectionSpec(id="team_partnership", title="🤝 조직 확장 및 파트너십 가이드", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
-    "owner_risk": SectionSpec(id="owner_risk", title="🧯 오너 리스크 관리 및 번아웃 방어", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
-    "sprint_12m": SectionSpec(id="sprint_12m", title="🗓️ 12개월 비즈니스 스프린트 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
-    "action_90d": SectionSpec(id="action_90d", title="🚀 향후 90일 매출 극대화 액션플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
-}
-
-# 🔥🔥🔥 P0: 섹션별 마스터 템플릿 핵심 가이드 (프롬프트 삽입용)
-SECTION_MASTER_GUIDES: Dict[str, Dict[str, str]] = {
-    "business_climate": {
-        "core_problem": "2026년 성패는 '확장'이 아니라 구조 안정화(집중→누적)를 먼저 만들 수 있느냐에 달려 있다.",
-        "key_insight": "의사결정/시도는 빠르지만, 전략이 동시에 늘어나면 실행이 분산되어 누적 성과가 깨지는 구조가 반복된다.",
-        "recommended": "옵션 A(안정화 우선)으로 '핵심 1개'만 남기고 누적 구조를 만든 뒤, 60일 이후 제한적 실험을 한다.",
-        "actions": "D+14: 전략 3→1 축소 | D+30: 자원 70% 집중 | D+60: 고정 매출 40% 확보",
-    },
-    "cashflow": {
-        "core_problem": "가장 큰 재무 리스크는 '매출 부족'이 아니라 현금 유입 시점이 불규칙한 구조다.",
-        "key_insight": "매출이 있어도 입금 지연/비정기 매출 비중이 높으면 고정비 충격에 취약해진다.",
-        "recommended": "선결제/예약금으로 단기 유동성을 만들고, 30일 내 정기결제 1개로 고정 매출을 만든다.",
-        "actions": "D+14: 선결제 30% 도입 | D+30: 정기결제 상품 1개 | D+60: 고정 현금흐름 50%",
-    },
-    "market_product": {
-        "core_problem": "확장의 핵심은 '상품 추가'가 아니라 포지션 명확화다.",
-        "key_insight": "대표 상품/대표 고객/대표 약속이 흐리면 선택 이유가 약해져 전환이 떨어진다.",
-        "recommended": "대표 상품 1개를 먼저 '대표 포지션'으로 고정하고, 60일 후 라인업 확장을 검토한다.",
-        "actions": "D+14: 대표 상품 1개 정의 | D+30: 타겟 문장+오퍼 통일 | D+60: 대표 상품 매출 60%",
-    },
-    "team_partnership": {
-        "core_problem": "확장은 '사람 추가'가 아니라 역할 고정(위임 구조)부터다.",
-        "key_insight": "대표가 모든 결정을 직접하면 시간 제약에서 성장 속도가 급격히 둔화된다.",
-        "recommended": "위임 업무를 먼저 정의하고, 외주 1명을 고정해 대표의 시간을 확보한다.",
-        "actions": "D+14: 위임 업무 3개 정의 | D+30: 외주 1명 고정 | D+60: 대표 비개입 프로세스 1개",
-    },
-    "owner_risk": {
-        "core_problem": "가장 큰 리스크는 실패가 아니라 '지속 불가능한 운영 리듬'이다.",
-        "key_insight": "회복 구간 없이 실행을 밀어붙이면 판단 오류/성과 급락이 발생한다.",
-        "recommended": "오프데이 1일을 먼저 고정하고, 반복업무 1개를 자동화해 대표 개입 시간을 줄인다.",
-        "actions": "D+14: 주간 오프 1일 고정 | D+30: 반복업무 자동화 1개 | D+60: 대표 개입 -20%",
-    },
-    "sprint_12m": {
-        "core_problem": "2026년은 장기 계획보다 '짧은 승리의 누적'이 성과를 만든다.",
-        "key_insight": "분기 단위 피드백이 없으면 연간 목표가 실행으로 연결되지 않는다.",
-        "recommended": "분기 단일 KPI로 운영하며 Q1~Q4를 '구조→수익→확장→정리'로 진행한다.",
-        "actions": "D+14: Q1 KPI 1개 확정 | D+30: 월간 리뷰 루틴 고정 | D+60: Q1 실행체크",
-    },
-    "action_90d": {
-        "core_problem": "다음 90일의 성과가 2026년 전체를 결정한다.",
-        "key_insight": "90일 성과는 '큰 계획'이 아니라 '가장 빠른 매출 레버 1개'에서 나온다.",
-        "recommended": "painPoint에 맞는 레버(리드 or 리텐션) 하나만 선택해 90일간 단일 KPI로 밀어붙인다.",
-        "actions": "D+14: 즉시 매출 액션 1개 | D+30: KPI 1개 개선 | D+90: 월매출 +30%",
-    },
+    "exec": SectionSpec(id="exec", title="2026년, 내 장사 설계도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
+    "money": SectionSpec(id="money", title="현금흐름 & 수익구조", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "business": SectionSpec(id="business", title="사업 전략 & 확장 타이밍", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "team": SectionSpec(id="team", title="협력자 & 파트너 리스크", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
+    "health": SectionSpec(id="health", title="체력 & 번아웃 관리", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
+    "calendar": SectionSpec(id="calendar", title="12개월 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
+    "sprint": SectionSpec(id="sprint", title="90일 스프린트 플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
 }
 
 
@@ -481,101 +423,6 @@ SPRINT_SECTION_SCHEMA = {
     }
 }
 
-# 🔥🔥🔥 P0: 장애물/리스크 섹션 전용 스키마 (team, health, business용)
-RISK_SECTION_SCHEMA = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "risk_section",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "diagnosis": {
-                    "type": "object",
-                    "properties": {
-                        "core_problem": {"type": "string"},
-                        "root_cause": {"type": "string"},
-                        "why_now": {"type": "string"}
-                    },
-                    "required": ["core_problem", "root_cause", "why_now"],
-                    "additionalProperties": False
-                },
-                "hypotheses": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "hypothesis": {"type": "string"},
-                            "evidence": {"type": "string"},
-                            "test": {"type": "string"}
-                        },
-                        "required": ["hypothesis", "evidence", "test"],
-                        "additionalProperties": False
-                    }
-                },
-                "strategy_options": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "pros": {"type": "string"},
-                            "cons": {"type": "string"},
-                            "when_to_choose": {"type": "string"}
-                        },
-                        "required": ["name", "pros", "cons", "when_to_choose"],
-                        "additionalProperties": False
-                    }
-                },
-                "recommended_strategy": {
-                    "type": "object",
-                    "properties": {
-                        "strategy": {"type": "string"},
-                        "reason": {"type": "string"},
-                        "execution_steps": {"type": "array", "items": {"type": "string"}}
-                    },
-                    "required": ["strategy", "reason", "execution_steps"],
-                    "additionalProperties": False
-                },
-                "kpis": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "metric": {"type": "string"},
-                            "target": {"type": "string"},
-                            "current": {"type": "string"},
-                            "measurement": {"type": "string"}
-                        },
-                        "required": ["metric", "target", "current", "measurement"],
-                        "additionalProperties": False
-                    }
-                },
-                "risks": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "risk": {"type": "string"},
-                            "probability": {"type": "string"},
-                            "impact": {"type": "string"},
-                            "mitigation": {"type": "string"}
-                        },
-                        "required": ["risk", "probability", "impact", "mitigation"],
-                        "additionalProperties": False
-                    }
-                },
-                "body_markdown": {"type": "string"},
-                "confidence": {"type": "string"}
-            },
-            "required": ["title", "diagnosis", "hypotheses", "strategy_options", 
-                        "recommended_strategy", "kpis", "risks", "body_markdown", "confidence"],
-            "additionalProperties": False
-        }
-    }
-}
-
 # Calendar 섹션: 월별 현금흐름 포함
 CALENDAR_SECTION_SCHEMA = {
     "type": "json_schema",
@@ -639,22 +486,7 @@ def get_section_schema(section_id: str) -> dict:
         return SPRINT_SECTION_SCHEMA
     elif spec.validation_type == "calendar":
         return CALENDAR_SECTION_SCHEMA
-    # 🔥🔥🔥 P0: 모든 PREMIUM 섹션에 RISK_SECTION_SCHEMA 적용 (마스터 템플릿 구조)
-    # diagnosis: {core_problem, root_cause, why_now}
-    # hypotheses: [{hypothesis, evidence, test}]
-    # strategy_options: [{name, pros, cons, when_to_choose}]
-    # recommended_strategy: {strategy, reason, execution_steps[]}
-    elif section_id in PREMIUM_SECTION_IDS:
-        return RISK_SECTION_SCHEMA
     return STANDARD_SECTION_SCHEMA
-
-
-def get_premium_section_spec(section_id: str) -> SectionSpec:
-    """No fallback. If section_id mismatch -> fail fast (prevents 'all sections look same')."""
-    spec = PREMIUM_SECTIONS.get(section_id)
-    if not spec:
-        raise ValueError(f"Unknown section_id={section_id}. Must be one of {list(PREMIUM_SECTIONS.keys())}")
-    return spec
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -705,21 +537,6 @@ class SectionRuleCardAllocation:
     allocated_count: int
     allocated_card_ids: List[str]
     context_text: str
-    engine_headline: str  # 🔥 P0: 1위 룰카드의 interpretation 첫 문장
-    top_card_id: str  # 🔥 P0: 1위 룰카드 ID
-
-
-def extract_first_sentence(text: str) -> str:
-    """텍스트에서 첫 문장 추출 (마침표/물음표/느낌표 기준)"""
-    if not text:
-        return ""
-    # 첫 문장 추출 (., ?, ! 기준)
-    import re
-    match = re.match(r'^[^.!?]*[.!?]', text.strip())
-    if match:
-        return match.group(0).strip()
-    # 마침표 없으면 첫 100자
-    return text.strip()[:100]
 
 
 def allocate_rulecards_to_section(
@@ -743,232 +560,81 @@ def allocate_rulecards_to_section(
     scored.sort(key=lambda x: x[0], reverse=True)
     allocated = [card for _, card in scored[:max_cards]]
     
-    # 🔥🔥🔥 P0 Engine Headline: 1위 룰카드의 interpretation 첫 문장 추출
-    engine_headline = ""
-    top_card_id = ""
-    if allocated:
-        top_card = allocated[0]
-        top_card_id = top_card.get("id", top_card.get("_id", ""))
-        # interpretation 필드에서 첫 문장 추출
-        interpretation = top_card.get("interpretation", "") or top_card.get("mechanism", "") or top_card.get("topic", "")
-        engine_headline = extract_first_sentence(sanitize_for_business(interpretation))
-        logger.info(f"[Engine Headline:{section_id}] Top Card: {top_card_id} → '{engine_headline[:50]}...'")
-    
     lines = []
     ids = []
     for card in allocated:
         cid = card.get("id", card.get("_id", f"card_{len(ids)}"))
         ids.append(cid)
         topic = card.get("topic", "")
+        # 🔥🔥🔥 P0-2: interpretation을 "결론"으로 추가 (trigger fallback)
+        interp = sanitize_for_business((card.get("interpretation") or card.get("trigger") or "")[:220])
         mechanism = sanitize_for_business((card.get("mechanism") or "")[:100])
         action = sanitize_for_business((card.get("action") or "")[:100])
         line = f"[{cid}] {topic}"
+        if interp:
+            line += f" | 결론: {interp}"
         if mechanism:
-            line += f" → {mechanism}"
+            line += f" | 근거: {mechanism}"
         if action:
             line += f" | 액션: {action}"
         lines.append(line)
     
     context = "\n".join(lines) if lines else "분석 데이터 없음"
-    return SectionRuleCardAllocation(section_id, len(ids), ids, context, engine_headline, top_card_id)
+    return SectionRuleCardAllocation(section_id, len(ids), ids, context)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 6. 프롬프트 생성 (비즈니스 가드레일 강화)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def get_section_system_prompt(section_id: str, target_year: int, survey_context: str = "") -> str:
+
+def _extract_engine_headline_from_rulecards(rulecards: List[Dict[str, Any]]) -> str:
+    """Top1 룰카드의 interpretation(없으면 trigger/mechanism)를 헤드라인으로 뽑아냄.
+    - 가능한 한 '한 문장'으로 유지
+    - sanitize_for_business 적용
+    """
+    if not rulecards:
+        return ""
+
+    def _first_sentence(text: str, max_len: int = 160) -> str:
+        t = (text or "").strip()
+        if not t:
+            return ""
+        # 1) 첫 줄
+        t = re.split(r"[\r\n]+", t)[0].strip()
+        if len(t) <= max_len:
+            return t
+        # 2) 문장부호 기준으로 자르기
+        cut = t[:max_len]
+        m = re.search(r"(.+?[\.\!\?…。])", cut)
+        if m:
+            return m.group(1).strip()
+        return cut.strip()
+
+    for card in rulecards:
+        raw = (
+            card.get("interpretation")
+            or card.get("trigger")
+            or card.get("mechanism")
+            or card.get("action")
+            or ""
+        )
+        try:
+            cleaned = sanitize_for_business(str(raw))
+        except Exception:
+            cleaned = str(raw)
+        headline = _first_sentence(cleaned)
+        if headline:
+            return headline
+
+    return ""
+
+
+def get_section_system_prompt(section_id: str, target_year: int, survey_context: str = "", engine_headline: str = "") -> str:
     """🔥 P0 Pivot: ONE-MAN BUSINESS 공통 프롬프트 (RC-#### 내부 메모 금지)"""
     spec = PREMIUM_SECTIONS.get(section_id)
     if not spec:
-        # 🔥🔥🔥 P0: fallback을 business_climate으로 변경
-        spec = PREMIUM_SECTIONS["business_climate"]
-    
-    # 🔥🔥🔥 P0 최상위 규칙: 인과관계 분석 원칙 (1순위)
-    cause_effect_principle = """
-## 🧠 인과관계 분석 원칙 (Cause-Effect Principle v2) - 최상위 규칙!
-
-### 1. 설문(Survey) = 직접 원인(Direct Cause)
-- 업종/매출구간/병목/목표/가용시간은 "현재 발생 중인 비즈니스 현상의 1차 원인"이다.
-- 섹션의 결론·액션·수치는 반드시 survey_data에서 시작하라.
-- ⚠️ 설문 문장을 그대로 반복하지 말고, KPI/매츠릭/수치/기간으로 변환하라.
-
-### 2. 사주(Pillars) = 증폭기/반복 패턴(Amplifier & Pattern)
-- 사주는 원인을 대체하지 않는다.
-- "왜 이 문제가 반복되는지", "어떤 리스크가 커지는지", "어떤 실행 리듬/우선순위가 필요한지"를 설명하는 **2차 원인(구조적 배경)**으로만 사용한다.
-- 사주 용어는 최소화하고(전체 단어 10% 이하) 비즈니스 언어로 치환한다.
-
-### 3. 해결책(Solution) = 처방(Prescription)
-- 해결책은 '설문 문장 반복'이 아니라, KPI(수치) + 기간(언제까지) + 행동(무엇을) + 리스크 대비(무엇을 막나)로 작성한다.
-
-**❗ 금지 예시:**
-- "리드 확보가 필요합니다" → ❌ (설문 반복)
-- "매출 성장을 위해 노력해야 합니다" → ❌ (추상어)
-
-**✅ 올바른 예시:**
-- "D+14까지 인스타그램 리스 광고 3개 테스트 → CPL 3000원 이하 채널 1개 선정 → D+30 리드 50건 확보" → ✅
-- "2월 매출 800만원 → 3월 1200만원 목표, 신규 고객 15명 확보, 객단가 20% 인상" → ✅
-"""
-    
-    # 🔥🔥🔥 P0 핵심: 섹션 서술 구조 강제 (3단계)
-    section_structure_rule = """
-## 📋 섹션 서술 구조 (3단계 강제)
-
-모든 섹션은 아래 구조를 반드시 따라야 한다:
-
-### 1단계. 【사업 DNA 진단】 (사주→비즈니스 치환, 10% 이하)
-- 사주 4주를 비즈니스 언어로 번역하여 2~3문장으로 진단.
-- 예: "일간 입수(壬水)는 유연한 적응력과 네트워킹 강점을 의미합니다. 다만 2026년에는..."
-
-### 2단계. 【현실 병목 진단】 (survey_data 기반 KPI/기간/상황)
-- survey_data의 업종/병목/매출/목표/시간을 KPI 관점으로 분해.
-- painPoint를 그대로 반복하지 말고, 발생 메커니즘을 설명.
-- 예: "lead 병목 → 유입수/전환율/단가/재방문/리드 품질로 분해"
-
-### 3단계. 【돌파 전략】 (수치/기간/행동 + 리스크 2개 + 체크리스트)
-- KPI 목표: 예) "월매출 1500만원"
-- 기간: 예) "D+30까지", "1분기 내"
-- 행동: 예) "인스타 리스 광고 3개 테스트"
-- 리스크 2개: 예) "광고비 과다 지출 시 현금흐름 악화"
-- 체크리스트: D+1, D+7, D+30 시점별 할 일
-"""
-    
-    # 🔥🔥🔥 P0 핵심: 리스크/장애물 섹션 전용 규칙 (새 ID 적용)
-    risk_analysis_rule = ""
-    if section_id in ["team_partnership", "owner_risk", "market_product"]:
-        risk_analysis_rule = """
-## ⚠️ 리스크 및 장애물 분석 규칙 (Survey-first)
-
-**반드시 준수:**
-
-1. painPoint를 "그대로 반복"하지 말고, 발생 메커니즘을 KPI 관점으로 분해하라.
-   - lead → 유입수/전환율/단가/재방문/리드 품질로 분해
-   - retention → 재구매율/칠드레이트/LTV/고객불만으로 분해
-   - operations → 처리시간/실수율/자동화율/병목프로세스로 분해
-
-2. **첫 문장은 반드시 아래 템플릿:**
-   "현재 장애물은 {painPoint} 자체가 아니라, {industry}에서 {time} 제약 하에 {revenue} 상태에서 흔히 터지는 (KPI/프로세스/계약/번아웃 중 1개) 구조 문제다."
-
-3. 사주는 2~3문장 이내로 "악화 조건/실행 리듬"만 보정:
-   "이 문제는 2026년에 (사주적 리듬)과 겹치면 지연 비용이 커진다" 수준으로만.
-
-4. **사주로만 우기는 방향 절대 금지:**
-   - "형충파해로 인해 주의해야 합니다" → ❌
-   - "재성이 약하므로 돈을 조심해야 합니다" → ❌
-   - "현재 월매출 800만원에서 재구매율 15%는 업계 평균 25% 대비 낮음 → D+30까지 25%로 끌어올리면 월 120만원 추가 수익" → ✅
-
-## 📋 JSON 출력 필수 필드 (RISK_SECTION_SCHEMA)
-
-장애물/리스크 섹션은 아래 JSON 구조를 **정확히** 따라야 한다:
-
-- `title`: "⚠️ 주요 장애물 및 리스크 (2026)"
-- `diagnosis`: {core_problem, root_cause, why_now} — 단일 원인 진단
-- `hypotheses`: [{hypothesis, evidence, test}] — 가설 2개
-- `strategy_options`: [{name, pros, cons, when_to_choose}] — 옵션 3개
-- `recommended_strategy`: {strategy, reason, execution_steps[]} — Action 1/2/3
-- `kpis`: [{metric, target, current, measurement}] — KPI 3개
-- `risks`: [{risk, probability, impact, mitigation}] — 리스크 2개
-- `body_markdown`: 결정 문장 3줄 → 단일 원인 → 리스크 2개 → 액션 3개 → 체크리스트
-- `confidence`: "중~상 (설문 입력값 기반)"
-
-## ✅ 완벽 예시 (이 구조 그대로 따라치면 통과)
-
-아래 예시에서 {industry}, {revenue}, {painPoint}, {goal}, {time}만 실제 입력값으로 채워라:
-
-```json
-{
-  "title": "⚠️ 주요 장애물 및 리스크 (2026)",
-  "diagnosis": {
-    "core_problem": "2026년에 실패 확률을 가장 크게 키우는 요인은 '매출이 적어서'가 아니라, 시간 대비 수익 밀도가 낮은 구조를 유지하는 것이다.",
-    "root_cause": "{industry}에서 주당 {time} 시간으로 운영하면서도, 매출을 만드는 핵심 행동이 분산되어 '집중 → 누적'이 일어나지 않는 구조(우선순위 붕괴).",
-    "why_now": "2026년은 실행 속도는 빨라지지만 구조 개선 없이 시도를 늘리면 손실이 커지는 해다. 즉 '더 많이 하기'가 아니라 '덜 하고 더 남기기'로 전환하지 않으면 리스크가 증폭된다."
-  },
-  "hypotheses": [
-    {
-      "hypothesis": "{painPoint} 병목의 본질은 유입 자체가 아니라 '전환 설계(메뉴/오퍼/동선/후속)'가 없어서 같은 노력 대비 매출로 연결되지 않는 것이다.",
-      "evidence": "주당 {time} 시간 내에서 신규 시도가 늘어도 '재방문/예약/구매 전환'이 자동으로 쌓이는 구조가 없으면 체감은 늘 바쁘고, 매출은 정체된다.",
-      "test": "D+14 안에 '상위 20% 매출 행동 2개'를 정하고 나머지 중단 + 전환 KPI 1개만 선택해 2주간 실험한다."
-    },
-    {
-      "hypothesis": "목표({goal})와 현재 매출 구간({revenue}) 사이의 간극이 '실행량'이 아니라 '단가/재구매/채널 1개 고정'에서 결정된다.",
-      "evidence": "목표는 크지만 채널이 여러 개로 분산되면 학습 데이터가 누적되지 않고, 결국 매달 '처음부터 다시' 상태가 반복된다.",
-      "test": "D+30까지 채널 1개만 고정 + 오퍼 1개 고정 + 랜딩/예약/결제 루틴을 1개로 묶어 전환률을 측정한다."
-    }
-  ],
-  "strategy_options": [
-    {
-      "name": "옵션 A: 단가 상승(객단가 +20%) 중심",
-      "pros": "시간이 늘지 않아도 목표({goal})에 가장 빨리 접근. 구조가 단순해짐.",
-      "cons": "오퍼/패키징 실패 시 단기 이탈 가능. 가격 저항 대응 필요.",
-      "when_to_choose": "서비스 가치가 명확하거나, 업셀/패키지 구성이 가능한 {industry}에 적합."
-    },
-    {
-      "name": "옵션 B: 전환율 상승(전환율 +30%) 중심",
-      "pros": "유입이 적어도 매출 효율이 올라감. 광고/콘텐츠 ROI가 안정화.",
-      "cons": "랜딩/동선/후속(리마인드/쿠폰/재방문) 설계가 필요.",
-      "when_to_choose": "{painPoint}가 lead/전환 문제일 때, 시간 대비 효율을 빠르게 올리고 싶을 때."
-    },
-    {
-      "name": "옵션 C: 리소스 재배치(주간 행동 7개→3개)",
-      "pros": "번아웃 리스크를 즉시 낮추고 실행 품질이 올라감.",
-      "cons": "단기적으로 '덜 하는 불안감'이 생길 수 있음.",
-      "when_to_choose": "주당 {time}에서 이미 과부하가 있고, '바쁜데 남는 게 없다'가 반복될 때."
-    }
-  ],
-  "recommended_strategy": {
-    "strategy": "옵션 C로 구조를 먼저 정리한 뒤(집중), 옵션 B 또는 A 중 하나만 선택해 KPI를 단일 개선한다.",
-    "reason": "현재 리스크의 본질은 '부족한 시도'가 아니라 '분산된 실행'이다. 먼저 행동을 줄여 누적 구조를 만들고, 그 다음에 단가 또는 전환율 중 하나만 올려야 목표({goal})에 가장 빠르고 안전하게 도달한다.",
-    "execution_steps": [
-      "Action 1 (D+14): 최근 3개월 기준 '상위 20% 매출 행동' 2개만 남기고 나머지 중단. 주간 행동 7개→3개로 축소.",
-      "Action 2 (D+30): 전환율 +30% 또는 객단가 +20% 중 하나만 선택. 둘 다 동시에 하지 않음.",
-      "Action 3 (D+60): 채널 1개 + 오퍼 1개 + 후속(리마인드/재방문) 1개를 묶어 '반복 가능한 수익 루틴'을 시스템화(매출의 40%를 반자동화)."
-    ]
-  },
-  "kpis": [
-    {
-      "metric": "주간 핵심 행동 수",
-      "target": "3개 이하로 고정",
-      "current": "미정(현재 7개 이상 가능성)",
-      "measurement": "주간 운영 체크리스트에서 실행한 행동 개수"
-    },
-    {
-      "metric": "전환율(또는 객단가)",
-      "target": "전환율 +30% 또는 객단가 +20% 중 1개만 달성",
-      "current": "미정",
-      "measurement": "주간 주문수/문의수 대비 구매/예약 전환(또는 평균 결제금액)"
-    },
-    {
-      "metric": "반자동 매출 비중",
-      "target": "매출의 40%",
-      "current": "미정",
-      "measurement": "자동/반자동 루틴 통해 발생한 매출 비중"
-    }
-  ],
-  "risks": [
-    {
-      "risk": "액션을 동시에 여러 개 진행하여 분산이 재발",
-      "probability": "높음",
-      "impact": "시간 소모 증가, 결과 누적 실패, 목표({goal}) 지연",
-      "mitigation": "'1→2→3' 순서 강제. Action 1 완료 전엔 Action 2 착수 금지."
-    },
-    {
-      "risk": "가격/전환 개선을 동시에 시도해 KPI가 왜곡",
-      "probability": "중간",
-      "impact": "무엇이 효과였는지 모르게 되어 개선이 멈춤",
-      "mitigation": "30일 동안 KPI 1개만 선택(객단가 or 전환율). 실험 기간 고정."
-    }
-  ],
-  "body_markdown": "## 결정 문장 (3줄)\\n- 2026년에 실패 확률을 키우는 핵심 요인은 '매출 부족'이 아니라 **시간 대비 수익 밀도**가 낮은 구조를 유지하는 것이다.\\n- 현재 병목은 {painPoint} 자체가 아니라, {industry}에서 주당 {time} 시간 내에 **핵심 행동이 분산**되어 누적이 안 나는 구조다.\\n- 2026년은 '더 많이'가 아니라 **'덜 하고 더 남기기'**로 전환하지 않으면 손실이 커진다.\\n\\n## 장애물의 정체 (단일 원인)\\n현재 장애물은 마케팅을 못해서가 아니라, 매출을 만드는 행동(채널/오퍼/후속)이 동시에 여러 갈래로 분산되어 **집중→누적**이 깨져 있는 구조다.\\n\\n## 리스크 (2개)\\n1) 분산 재발: 바쁜데 남는 게 없는 상태 고착\\n2) KPI 혼합: 객단가/전환율을 동시에 건드려 개선이 멈춤\\n\\n## 액션플랜 (3개, 순서 강제)\\n### Action 1 (D+14): 상위 20% 행동만 남기기\\n- 목표: 주간 행동 7개→3개\\n- 기준: 최근 3개월 매출 기여도\\n\\n### Action 2 (D+30): KPI 1개만 개선\\n- 선택: 전환율 +30% **또는** 객단가 +20%\\n- 금지: 둘 다 동시에\\n\\n### Action 3 (D+60): 수익 루틴 1개 시스템화\\n- 목표: 매출 40% 반자동화(채널 1개 + 오퍼 1개 + 후속 1개)\\n\\n## 체크리스트\\n- [ ] 이번 주 중단한 행동 3가지를 말할 수 있는가?\\n- [ ] 가장 큰 매출 행동 1개가 무엇인지 명확한가?\\n- [ ] 30일 뒤 KPI 1개가 실제로 개선됐는가?",
-  "confidence": "중~상 (설문 입력값 기반 + 실행구조 중심. 사주 요소는 패턴/악화조건 보정 수준으로 제한)"
-}
-```
-
-⚠️ **필수 규칙:**
-1. 위 JSON 구조를 **정확히** 따라라. 필드 누락 금지.
-2. {industry}, {revenue}, {painPoint}, {goal}, {time}만 실제 설문 입력값으로 채워라.
-3. body_markdown은 '결정 문장→단일 원인→리스크 2개→액션 3개(순서 강제)→체크리스트' 형식 유지.
-4. 사주 용어는 diagnosis/hypotheses에서 2~3문장 이내로만 사용.
-"""
+        spec = PREMIUM_SECTIONS["exec"]
     
     # 🔥🔥🔥 P0 핵심: 사주 용어 강제 포함 프롬프트
     saju_interpretation_rule = """
@@ -997,12 +663,6 @@ def get_section_system_prompt(section_id: str, target_year: int, survey_context:
 - 관성(官星) → 조직력/시스템/규모 확장
 - 인성(印星) → 브랜드/콘텐츠/학습 능력
 - 식상(食傷) → 창의력/마케팅/상품 개발
-- 비겁(比劫)/비견·겁재 → 파트너/협업/경쟁/인적 네트워크
-
-### 표현 규칙 (절대 위반 금지)
-- **사주 용어 비중은 전체 단어의 10% 이하**로 제한하고, 나머지 90%는 비즈니스 언어(매출/현금흐름/리드/전환/단가/재구매/계약/리스크/번아웃)로 치환하라.
-- “운이 좋다/노력해라/성장/균형/마음가짐/기회” 같은 추상 문구는 금지한다. 대신 **수치·기간·행동**으로 쓴다.
-- 내부 코드(RC-####)나 룰카드 ID는 절대 노출하지 말고, 저장 직전 sanitize를 가정하더라도 **출력에서 먼저 금지**한다.
 - 비겱(比劫) → 팀 운영/파트너십/경쟁
 - 신강(身強) → 실행력/주도성/리더십
 - 신약(身弱) → 협업 필요/외부 자원 활용/시스템화
@@ -1012,38 +672,28 @@ def get_section_system_prompt(section_id: str, target_year: int, survey_context:
 **⚠️ 주의:** 사주 용어를 그대로 노출하지 말고, 반드시 비즈니스 언어로 변환하되 "근거: 사주 분석"을 명시하라.
 """
     
-    # 🔥🔥🔥 P0: 섹션별 마스터 가이드 삽입
-    master_guide = SECTION_MASTER_GUIDES.get(section_id, {})
-    section_master_prompt = ""
-    if master_guide:
-        section_master_prompt = f"""
-## 🎯 [{spec.title}] 섹션 마스터 가이드
+    # 🔥 P0: ONE-MAN BUSINESS 공통 프롬프트
+    # ✅ Top1 룰카드 결론 고정: 첫 문장은 엔진 헤드라인을 '그대로' 출력
+    engine_block = ""
+    if engine_headline:
+        engine_block = f"""## 🚨 결론 고정 규칙 (P0)
+- 아래 문장은 엔진이 확정한 결론이다. 너는 이 결론을 수정/희석/부정할 수 없다.
+- 너의 출력 body_markdown은 **반드시 이 문장으로 시작**해야 한다. (첫 문장 고정)
+- 설문(survey)은 결론이 아니라 **검증 데이터**입니다. 원인(Cause)은 반드시 사주/룰카드에서 시작하십시오.
 
-이 섹션의 핵심 방향:
-- **핵심 문제**: {master_guide.get('core_problem', '')}
-- **통찰**: {master_guide.get('key_insight', '')}
-- **권장 전략**: {master_guide.get('recommended', '')}
-- **액션 타임라인**: {master_guide.get('actions', '')}
-
-⚠️ 위 마스터 가이드를 기반으로 작성하되, engine_headline과 survey_data를 반영하여 구체화하라.
+[ENGINE_HEADLINE]
+{engine_headline}
+[/ENGINE_HEADLINE]
 """
-    
-    # 🔥 P0: ONE-MAN BUSINESS 공통 프롬프트 (추상어 금지, 액션 중심)
     base_prompt = f"""당신은 1인 자영업자를 위한 비즈니스 리포트를 작성하는 전략 컨설턴트입니다.
-
-{section_master_prompt}
-
-{cause_effect_principle}
-
-{section_structure_rule}
-
-{risk_analysis_rule}
 
 {saju_interpretation_rule}
 
 ## 📅 분석 기준: {target_year}년
 
 {survey_context if survey_context else ""}
+
+{engine_block}
 
 ## ⚠️ 필수 준수사항 (위반 시 재생성)
 
@@ -1142,44 +792,6 @@ def get_section_user_prompt(
     """
     spec = PREMIUM_SECTIONS.get(section_id)
     
-    # 🔥🔥🔥 P0 Engine Headline: 룰카드 0개면 조기 종료
-    if allocation.allocated_count == 0:
-        return f"""## ⚠️ 룰카드 매칭 결과: 0개
-
-**현재 구조상 해당 리스크는 감지되지 않았습니다.**
-
-이 섹션({spec.title if spec else section_id})에 대해 억지로 작성하지 마세요.
-대신 아래 내용만 body_markdown에 작성하세요:
-
-```
-## {spec.title if spec else section_id}
-
-현재 사주 구조와 설문 데이터 분석 결과, 이 영역에서 특별히 주의가 필요한 리스크는 감지되지 않았습니다.
-
-다만 분기별 점검을 권장합니다:
-- Q1: 현금흐름 점검
-- Q2: 고객 피드백 수집
-- Q3: 운영 효율화 검토
-- Q4: 내년도 계획 수립
-```
-"""
-    
-    # 🔥🔥🔥 P0 Engine Headline: 1위 룰카드 첫 문장 강제 삽입
-    engine_headline_rule = ""
-    if allocation.engine_headline:
-        engine_headline_rule = f"""
-## 🔥🔥🔥 [Engine Headline 규칙 - 최우선!] 🔥🔥🔥
-
-**body_markdown의 첫 문장은 반드시 아래 문장을 그대로 복사하세요. 수정 금지!**
-
-> **{allocation.engine_headline}**
-
-이 문장은 스코어 1위 룰카드({allocation.top_card_id})에서 추출한 핵심 결론입니다.
-LLM이 이 문장을 변경하면 재생성됩니다.
-
-이후 문단에서만 survey_data를 결합해 "비즈니스적 이유/실행계획"을 설명하세요.
-"""
-    
     # 🔥 사주 4주 추출 (이게 핵심!)
     year_pillar = saju_data.get("year_pillar", "-")
     month_pillar = saju_data.get("month_pillar", "-")
@@ -1194,9 +806,7 @@ LLM이 이 문장을 변경하면 재생성됩니다.
     if not year_pillar or year_pillar == "-":
         logger.warning(f"[Prompt:{section_id}] ⚠️ 사주 데이터 누락! year_pillar={year_pillar}")
     
-    return f"""{engine_headline_rule}
-
-## 🔮 클라이언트 사주 원국 (필수 참조)
+    return f"""## 🔮 클라이언트 사주 원국 (필수 참조)
 
 **이 분석은 아래 사주를 기반으로 합니다. 반드시 이 4주를 해석에 반영하세요.**
 
@@ -1221,13 +831,12 @@ LLM이 이 문장을 변경하면 재생성됩니다.
 위 사주 원국과 RuleCards를 기반으로 **{spec.title if spec else section_id}** 섹션을 작성하세요.
 
 ⚠️ 핵심 규칙:
-1. **body_markdown 첫 문장은 Engine Headline 그대로 복사!** (수정 금지)
-2. 위 사주 4주(년/월/일/시)를 반드시 해석에 반영
-3. 일간 {day_master}({day_master_element})의 특성을 모든 전략에 연결
-4. 반드시 한국어로만 작성
-5. 취업/자격증/이력서/면접 관련 내용 절대 금지
-6. 매출, 수익, 현금흐름, ROI, KPI 중심으로 작성
-7. 최소 {spec.min_chars if spec else 2000}자 이상
+1. 위 사주 4주(년/월/일/시)를 반드시 해석에 반영
+2. 일간 {day_master}({day_master_element})의 특성을 모든 전략에 연결
+3. 반드시 한국어로만 작성
+4. 취업/자격증/이력서/면접 관련 내용 절대 금지
+5. 매출, 수익, 현금흐름, ROI, KPI 중심으로 작성
+6. 최소 {spec.min_chars if spec else 2000}자 이상
 7. JSON 스키마에 정확히 맞춰 응답"""
 
 
@@ -1338,7 +947,8 @@ class PremiumReportBuilder:
         user_question: str,
         max_regeneration: int = 2,
         job_id: Optional[str] = None,
-        survey_context: str = ""  # 🔥 v7: 설문 컨텍스트
+        survey_context: str = "",  # 🔥 v7: 설문 컨텍스트
+        engine_headline: str = ""  # ✅ Top1 룰카드 결론 고정
     ) -> Dict[str, Any]:
         """섹션 생성 + 가드레일 검증 + 품질 게이트 + 자동 재생성"""
         
@@ -1350,7 +960,7 @@ class PremiumReportBuilder:
             if job_id:
                 await job_store.section_start(job_id, section_id)
             
-            system_prompt = get_section_system_prompt(section_id, target_year, survey_context)
+            system_prompt = get_section_system_prompt(section_id, target_year, survey_context, engine_headline=engine_headline)
             user_prompt = get_section_user_prompt(section_id, saju_data, allocation, target_year, user_question)
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -1358,10 +968,7 @@ class PremiumReportBuilder:
             ]
             response_format = get_section_schema(section_id)
             
-            logger.info(f"[Section:{section_id}] 시작 | RuleCards={allocation.allocated_count}장 | Engine Headline: '{allocation.engine_headline[:30] if allocation.engine_headline else 'N/A'}...'")
-            
-            # 🔥 P0 Engine Headline: 루프 외부에서 변수 초기화
-            engine_headline_valid = True
+            logger.info(f"[Section:{section_id}] 시작 | RuleCards={allocation.allocated_count}장")
             
             for regen_attempt in range(max_regeneration + 1):
                 content = await self._call_with_retry(
@@ -1378,6 +985,21 @@ class PremiumReportBuilder:
                     await job_store.section_stage(job_id, section_id, "guardrail_check")
                 
                 # 🔥 가드레일 검증
+                
+                # ✅ 엔진 헤드라인 강제: 첫 문장은 Top1 룰카드 interpretation을 그대로
+                if engine_headline:
+                    try:
+                        head = engine_headline.strip()
+                        body_now = (content.get("body_markdown") or "")
+                        if body_now:
+                            body_stripped = body_now.lstrip()
+                            if not body_stripped.startswith(head):
+                                content["body_markdown"] = f"{head}\n\n{body_stripped}"
+                        else:
+                            content["body_markdown"] = head
+                    except Exception as _e:
+                        pass
+
                 body_text = content.get("body_markdown", "")
                 is_valid, errors = validate_language_and_topic(body_text, section_id)
                 
@@ -1398,21 +1020,6 @@ class PremiumReportBuilder:
                             errors.append(f"QUALITY_GATE:{issue.type}")
                     logger.warning(f"[Section:{section_id}] 품질 게이트 점수: {quality_report.score}/100")
                 
-                # 🔥🔥🔥 P0 Engine Headline 검증: body_markdown이 engine_headline으로 시작해야 함
-                engine_headline_valid = True
-                if allocation.engine_headline:
-                    # 마크다운 헤더 제거 후 첫 실제 문장 추출
-                    body_lines = [l.strip() for l in body_text.split('\n') if l.strip() and not l.strip().startswith('#')]
-                    first_content_line = body_lines[0] if body_lines else ""
-                    
-                    # engine_headline의 첫 20자가 body_markdown 첫 줄에 포함되어야 함
-                    headline_prefix = allocation.engine_headline[:20].strip()
-                    if headline_prefix and headline_prefix not in first_content_line[:100]:
-                        engine_headline_valid = False
-                        errors.append(f"ENGINE_HEADLINE_MISMATCH (expected: '{headline_prefix}...')")
-                        logger.warning(f"[Section:{section_id}] ⚠️ Engine Headline 불일치! expected='{headline_prefix}...', got='{first_content_line[:50]}...'")
-                        is_valid = False
-                
                 if is_valid:
                     logger.info(f"[Section:{section_id}] ✅ 가드레일 통과")
                     break
@@ -1428,29 +1035,6 @@ class PremiumReportBuilder:
                         logger.error(f"[Section:{section_id}] ❌ 가드레일 최종 실패 | Errors: {errors}")
             
             latency_ms = int((time.time() - start_time) * 1000)
-            
-            # 🔥🔥🔥 P0 Engine Headline: 최종 실패 시 prepend 강제
-            if allocation.engine_headline and not engine_headline_valid:
-                original_body = content.get("body_markdown", "")
-                # 헤더 찾아서 그 다음에 engine_headline 삽입
-                lines = original_body.split('\n')
-                new_lines = []
-                headline_inserted = False
-                for line in lines:
-                    new_lines.append(line)
-                    # 첫 번째 헤더(## 또는 #) 다음에 삽입
-                    if not headline_inserted and line.strip().startswith('#'):
-                        new_lines.append("")
-                        new_lines.append(f"**{allocation.engine_headline}**")
-                        new_lines.append("")
-                        headline_inserted = True
-                
-                if not headline_inserted:
-                    # 헤더가 없으면 맨 앞에 삽입
-                    new_lines = [f"**{allocation.engine_headline}**", ""] + lines
-                
-                content["body_markdown"] = '\n'.join(new_lines)
-                logger.info(f"[Section:{section_id}] 🔥 Engine Headline 강제 삽입 완료: '{allocation.engine_headline[:30]}...'")
             
             # 🔥 P0-2: ok 필드 명확히 반환 (is_valid 기반)
             return {
@@ -1497,6 +1081,7 @@ class PremiumReportBuilder:
             await job_store.start_job(job_id)
         
         # 전역 Top-100 선별
+        global_engine_headline = _extract_engine_headline_from_rulecards(rulecards)
         global_selection = select_global_top100(rulecards, feature_tags, top_limit=100)
         
         logger.info(
@@ -1505,8 +1090,8 @@ class PremiumReportBuilder:
             f"Top100={global_selection.top100_count}"
         )
         
-        # 🔥🔥🔥 P0: 섹션별 RuleCard 분배 (PREMIUM_SECTION_IDS로 순서 보장)
-        section_ids = PREMIUM_SECTION_IDS
+        # 섹션별 RuleCard 분배
+        section_ids = list(PREMIUM_SECTIONS.keys())
         allocations: Dict[str, SectionRuleCardAllocation] = {}
         used_card_ids = set()
         
@@ -1523,17 +1108,25 @@ class PremiumReportBuilder:
         
         # 섹션 생성 (가드레일 + 품질 게이트 포함) - 🔥 순차 처리로 변경 (Progress 지원)
         results = []
+        section_headlines = {}  # 🔥 P0: 섹션별 engine_headline 저장
         for sid in section_ids:
             try:
+                # 🔥🔥🔥 P0: 섹션별 Top1 카드에서 engine_headline 추출
+                alloc = allocations[sid]
+                section_cards = [c for c in global_selection.top100_cards if c.get("id", c.get("_id", "")) in alloc.allocated_card_ids]
+                section_engine_headline = _extract_engine_headline_from_rulecards(section_cards)
+                section_headlines[sid] = section_engine_headline
+                
                 result = await self._generate_section_with_guardrail(
                     section_id=sid,
                     saju_data=saju_data,
-                    allocation=allocations[sid],
+                    allocation=alloc,
                     target_year=target_year,
                     user_question=user_question,
                     max_regeneration=2,
                     job_id=job_id,
-                    survey_context=survey_context  # 🔥 v7: 설문 컨텍스트 전달
+                    survey_context=survey_context,  # 🔥 v7: 설문 컨텍스트 전달
+                    engine_headline=section_engine_headline  # ✅ 섹션별 Top1 룰카드 결론 고정
                 )
                 results.append(result)
                 
@@ -1575,7 +1168,10 @@ class PremiumReportBuilder:
                     "body_markdown": polished.get("body_markdown", ""),
                     "char_count": len(polished.get("body_markdown", "")),
                     "latency_ms": result.get("latency_ms", 0),
-                    "guardrail_passed": len(result.get("guardrail_errors", [])) == 0
+                    "guardrail_passed": len(result.get("guardrail_errors", [])) == 0,
+                    # 🔥🔥🔥 P0: engine_headline + top_card_id 저장
+                    "engine_headline": section_headlines.get(sid, ""),
+                    "top_card_id": alloc.allocated_card_ids[0] if alloc.allocated_card_ids else ""
                 }
                 
                 # 타입별 필드
@@ -1713,6 +1309,7 @@ class PremiumReportBuilder:
             except Exception as e:
                 logger.warning(f"[SingleSection] 설문 데이터 변환 실패: {e}")
         
+        engine_headline = _extract_engine_headline_from_rulecards(rulecards)
         global_selection = select_global_top100(rulecards, feature_tags, top_limit=100)
         spec = PREMIUM_SECTIONS[section_id]
         allocation = allocate_rulecards_to_section(global_selection.top100_cards, section_id, spec.max_cards, set())
@@ -1725,7 +1322,8 @@ class PremiumReportBuilder:
                 target_year=target_year,
                 user_question=user_question,
                 max_regeneration=2,
-                survey_context=survey_context  # 🔥 v7: 설문 컨텍스트 전달
+                survey_context=survey_context,  # 🔥 v7: 설문 컨텍스트 전달
+                engine_headline=engine_headline  # ✅ Top1 룰카드 결론 고정
             )
             
             content = result["content"]
@@ -1740,7 +1338,10 @@ class PremiumReportBuilder:
                 "body_markdown": polished.get("body_markdown", ""),
                 "char_count": len(polished.get("body_markdown", "")),
                 "latency_ms": result.get("latency_ms", 0),
-                "regenerated": True
+                "regenerated": True,
+                # 🔥🔥🔥 P0: engine_headline + top_card_id 저장
+                "engine_headline": engine_headline,
+                "top_card_id": allocation.allocated_card_ids[0] if allocation.allocated_card_ids else ""
             }
             
             return {"success": True, "section": section_data}
