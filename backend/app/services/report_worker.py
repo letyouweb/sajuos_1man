@@ -98,16 +98,25 @@ class ReportWorker:
         # 🔥 P0: 사주 데이터 추출
         saju_data = self._prepare_saju_data(input_json)
         
-        # 사주 4주 검증
+        # 🔥🔥🔥 P0 핵심: 사주 데이터 무결성 체크 - 비어있으면 에러!
         missing_pillars = []
         for key in ["year_pillar", "month_pillar", "day_pillar"]:
             if not saju_data.get(key):
                 missing_pillars.append(key)
         
         if missing_pillars:
-            logger.error(f"[Worker] ⚠️ 사주 데이터 누락: {missing_pillars}")
-        else:
-            logger.info(f"[Worker] ✅ 사주: {saju_data['year_pillar']}/{saju_data['month_pillar']}/{saju_data['day_pillar']}/{saju_data.get('hour_pillar', '-')}")
+            error_msg = f"사주 데이터 누락: {missing_pillars}. 사주 없는 사주 리포트는 상품 가치가 없습니다."
+            logger.error(f"[Worker] ❌❌❌ {error_msg}")
+            logger.error(f"[Worker] input_json keys: {list(input_json.keys())}")
+            logger.error(f"[Worker] saju_result: {input_json.get('saju_result', {})[:200] if input_json.get('saju_result') else 'None'}")
+            
+            # 🔥 P0: 사주 데이터 없으면 즉시 실패 처리
+            await supabase_service.fail_job(job_id, error_msg)
+            return False, error_msg
+        
+        logger.info(f"[Worker] ✅ 사주 검증 통과: {saju_data['year_pillar']}/{saju_data['month_pillar']}/{saju_data['day_pillar']}/{saju_data.get('hour_pillar', '-')}")
+        logger.info(f"[Worker] ✅ 일간: {saju_data.get('day_master', '-')} ({saju_data.get('day_master_element', '-')})")
+        logger.info(f"[Worker] ✅ 생년월일시: {saju_data.get('birth_info', '-')}")
         
         # 🔥 P0: Feature Tags 생성
         feature_tags = self._build_feature_tags(saju_data)

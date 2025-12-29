@@ -285,10 +285,11 @@ class RuleCardScorer:
                     trace.tag_match += base_score
                     matched_tags.append(tag)
             
-            # 3. FeatureTags 매칭 (사주 기반)
+            # 3. 🔥🔥🔥 P0 핵심: FeatureTags 매칭 (사주 기반) - 가중치 10배 폭등!
+            # 사주 원국과 맞지 않는 카드는 절대 1등이 될 수 없음
             for ft in feature_tags:
                 if ft.lower() in [t.lower() for t in card_tags]:
-                    trace.feature_match += 5.0
+                    trace.feature_match += 50.0  # 🔥 5.0 → 50.0 (10배 증가)
                     match_counts["feature_matched"] += 1
             
             # 4. 🔥 P0: 업종 가중치
