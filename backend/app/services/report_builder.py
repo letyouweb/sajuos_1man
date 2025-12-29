@@ -423,6 +423,101 @@ SPRINT_SECTION_SCHEMA = {
     }
 }
 
+# 🔥🔥🔥 P0: 장애물/리스크 섹션 전용 스키마 (team, health, business용)
+RISK_SECTION_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "risk_section",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "diagnosis": {
+                    "type": "object",
+                    "properties": {
+                        "core_problem": {"type": "string"},
+                        "root_cause": {"type": "string"},
+                        "why_now": {"type": "string"}
+                    },
+                    "required": ["core_problem", "root_cause", "why_now"],
+                    "additionalProperties": False
+                },
+                "hypotheses": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "hypothesis": {"type": "string"},
+                            "evidence": {"type": "string"},
+                            "test": {"type": "string"}
+                        },
+                        "required": ["hypothesis", "evidence", "test"],
+                        "additionalProperties": False
+                    }
+                },
+                "strategy_options": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "pros": {"type": "string"},
+                            "cons": {"type": "string"},
+                            "when_to_choose": {"type": "string"}
+                        },
+                        "required": ["name", "pros", "cons", "when_to_choose"],
+                        "additionalProperties": False
+                    }
+                },
+                "recommended_strategy": {
+                    "type": "object",
+                    "properties": {
+                        "strategy": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "execution_steps": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["strategy", "reason", "execution_steps"],
+                    "additionalProperties": False
+                },
+                "kpis": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "metric": {"type": "string"},
+                            "target": {"type": "string"},
+                            "current": {"type": "string"},
+                            "measurement": {"type": "string"}
+                        },
+                        "required": ["metric", "target", "current", "measurement"],
+                        "additionalProperties": False
+                    }
+                },
+                "risks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "risk": {"type": "string"},
+                            "probability": {"type": "string"},
+                            "impact": {"type": "string"},
+                            "mitigation": {"type": "string"}
+                        },
+                        "required": ["risk", "probability", "impact", "mitigation"],
+                        "additionalProperties": False
+                    }
+                },
+                "body_markdown": {"type": "string"},
+                "confidence": {"type": "string"}
+            },
+            "required": ["title", "diagnosis", "hypotheses", "strategy_options", 
+                        "recommended_strategy", "kpis", "risks", "body_markdown", "confidence"],
+            "additionalProperties": False
+        }
+    }
+}
+
 # Calendar 섹션: 월별 현금흐름 포함
 CALENDAR_SECTION_SCHEMA = {
     "type": "json_schema",
@@ -486,6 +581,9 @@ def get_section_schema(section_id: str) -> dict:
         return SPRINT_SECTION_SCHEMA
     elif spec.validation_type == "calendar":
         return CALENDAR_SECTION_SCHEMA
+    # 🔥 P0: 장애물/리스크 섹션용 스키마 (team, health, business)
+    elif section_id in ["team", "health", "business"]:
+        return RISK_SECTION_SCHEMA
     return STANDARD_SECTION_SCHEMA
 
 
@@ -661,6 +759,51 @@ def get_section_system_prompt(section_id: str, target_year: int, survey_context:
    - "형충파해로 인해 주의해야 합니다" → ❌
    - "재성이 약하므로 돈을 조심해야 합니다" → ❌
    - "현재 월매출 800만원에서 재구매율 15%는 업계 평균 25% 대비 낮음 → D+30까지 25%로 끌어올리면 월 120만원 추가 수익" → ✅
+
+## 📋 JSON 출력 필수 필드 (RISK_SECTION_SCHEMA)
+
+장애물/리스크 섹션은 아래 JSON 구조를 **정확히** 따라야 한다:
+
+- `title`: "⚠️ 주요 장애물 및 리스크 (2026)"
+- `diagnosis`: {core_problem, root_cause, why_now} — 단일 원인 진단
+- `hypotheses`: [{hypothesis, evidence, test}] — 가설 2개
+- `strategy_options`: [{name, pros, cons, when_to_choose}] — 옵션 3개
+- `recommended_strategy`: {strategy, reason, execution_steps[]} — Action 1/2/3
+- `kpis`: [{metric, target, current, measurement}] — KPI 3개
+- `risks`: [{risk, probability, impact, mitigation}] — 리스크 2개
+- `body_markdown`: 결정 문장 3줄 → 단일 원인 → 리스크 2개 → 액션 3개 → 체크리스트
+- `confidence`: "중~상 (설문 입력값 기반)"
+
+**body_markdown 필수 구조:**
+```markdown
+## 결정 문장 (3줄)
+- 핵심 인사이트 1줄
+- 핵심 인사이트 2줄
+- 핵심 인사이트 3줄
+
+## 장애물의 정체 (단일 원인)
+[diagnosis.core_problem 요약]
+
+## 리스크 (2개)
+1) [risk 1]
+2) [risk 2]
+
+## 액션플랜 (3개, 순서 강제)
+### Action 1 (D+14): [제목]
+- 목표: ...
+- 기준: ...
+
+### Action 2 (D+30): [제목]
+...
+
+### Action 3 (D+60): [제목]
+...
+
+## 체크리스트
+- [ ] 이번 주 중단한 행동 3가지?
+- [ ] 가장 큰 매출 행동 1개?
+- [ ] 30일 뒤 KPI 1개 개선됐는가?
+```
 """
     
     # 🔥🔥🔥 P0 핵심: 사주 용어 강제 포함 프롬프트
