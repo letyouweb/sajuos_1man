@@ -52,15 +52,15 @@ const getStatusText = (status: string): string => {
 
 // 🔥 프리미엄 진행 메시지 변환 (안전한 includes 처리)
 const getPremiumStepMessage = (step: string | undefined | null, sectionId?: string): string => {
-  // 섹션별 프리미엄 메시지
+  // 🔥🔥🔥 P0: 신규 섹션 ID에 맞춰 업데이트
   const sectionMessages: Record<string, string> = {
-    'exec': '🎯 경영진 요약 - 핵심 인사이트 도출 중...',
-    'money': '💰 재물운 분석 - 현금흐름 최적화 전략 수립 중...',
-    'business': '📈 사업 전략 - 2026 성장 로드맵 설계 중...',
-    'team': '👥 팀/파트너십 - 인재 운용 전략 분석 중...',
-    'health': '⚡ 컨디션 관리 - 에너지 최적화 구간 분석 중...',
-    'calendar': '📅 월별 액션 캘린더 - 골든타임 계산 중...',
-    'sprint': '🚀 90일 스프린트 - 우선순위 체크리스트 생성 중...',
+    'business_climate': '🌦️ 비즈니스 기상도 - 2026년 핵심 전략 분석 중...',
+    'cashflow': '💰 현금흐름 분석 - 자본 유동성 최적화 중...',
+    'market_product': '📍 시장 분석 - 포지셔닝 전략 수립 중...',
+    'team_partnership': '🤝 조직 분석 - 파트너십 가이드 작성 중...',
+    'owner_risk': '🧯 리스크 분석 - 오너 리스크 관리 전략 수립 중...',
+    'sprint_12m': '🗓️ 캘린더 생성 - 12개월 스프린트 계획 중...',
+    'action_90d': '🚀 액션플랜 - 90일 매출 극대화 전략 수립 중...',
   };
   
   if (sectionId && sectionMessages[sectionId]) {

@@ -154,9 +154,10 @@ export default function ResultCard({ calculateResult, interpretResult }: ResultC
     );
   };
 
+  // 🔥🔥🔥 P0: 신규 섹션 ID에 맞춰 업데이트
   const sectionIcons: Record<string, string> = {
-    exec: '📊', money: '💰', business: '💼', team: '👥',
-    health: '💪', calendar: '📅', sprint: '🚀'
+    business_climate: '🌦️', cashflow: '💰', market_product: '📍', team_partnership: '🤝',
+    owner_risk: '🧯', sprint_12m: '🗓️', action_90d: '🚀'
   };
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

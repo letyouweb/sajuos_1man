@@ -7,28 +7,39 @@ import ReactMarkdown from "react-markdown";
 // 🔥 P0: API URL 단일화
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.sajuos.com";
 
-// 🔥 섹션 순서
-const SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"];
+// 🔥🔥🔥 P0: 신규 섹션 ID로 업데이트
+const SECTION_ORDER = ["business_climate", "cashflow", "market_product", "team_partnership", "owner_risk", "sprint_12m", "action_90d"];
 
-// 🔥 섹션 타이틀
+// 🔥🔥🔥 P0: 신규 섹션 타이틀
 const SECTION_TITLES: Record<string, string> = {
-  exec: "📊 Executive Summary",
-  money: "💰 Money & Cashflow",
-  business: "🏢 Business Strategy",
-  team: "👥 Team & Partner",
-  health: "❤️ Health & Performance",
-  calendar: "📅 12-Month Calendar",
-  sprint: "🚀 90-Day Sprint",
+  business_climate: "🌦️ 2026 비즈니스 전략 기상도",
+  cashflow: "💰 자본 유동성 및 현금흐름 최적화",
+  market_product: "📍 시장 포지셔닝 및 상품 확장 전략",
+  team_partnership: "🤝 조직 확장 및 파트너십 가이드",
+  owner_risk: "🧯 오너 리스크 관리 및 번아웃 방어",
+  sprint_12m: "🗓️ 12개월 비즈니스 스프린트 캘린더",
+  action_90d: "🚀 향후 90일 매출 극대화 액션플랜",
 };
 
 const SECTION_ICONS: Record<string, string> = {
-  exec: "📊",
-  money: "💰",
-  business: "🏢",
-  team: "👥",
-  health: "❤️",
-  calendar: "📅",
-  sprint: "🚀",
+  business_climate: "🌦️",
+  cashflow: "💰",
+  market_product: "📍",
+  team_partnership: "🤝",
+  owner_risk: "🧯",
+  sprint_12m: "🗓️",
+  action_90d: "🚀",
+};
+
+// 🔥🔥🔥 P0: 탭 버튼용 짧은 이름
+const TAB_NAMES: Record<string, string> = {
+  business_climate: "전략기상도",
+  cashflow: "현금흐름",
+  market_product: "시장전략",
+  team_partnership: "파트너십",
+  owner_risk: "리스크",
+  sprint_12m: "12개월",
+  action_90d: "90일플랜",
 };
 
 // 🔥 P0: 안전한 includes 헬퍼
@@ -47,7 +58,7 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
   const [error, setError] = useState<string>("");
   const [status, setStatus] = useState<"loading" | "generating" | "completed" | "error">("loading");
   const [progress, setProgress] = useState(0);
-  const [activeSection, setActiveSection] = useState<string>("exec");
+  const [activeSection, setActiveSection] = useState<string>("business_climate");
   
   // 🔥 P0: 전체보기 모드
   const [viewMode, setViewMode] = useState<"tabs" | "full">("tabs");
@@ -429,7 +440,7 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         }`}
                       >
-                        {SECTION_ICONS[sid] || "📄"} {sid.charAt(0).toUpperCase() + sid.slice(1)}
+                        {SECTION_ICONS[sid] || "📄"} {TAB_NAMES[sid] || sid}
                       </button>
                     );
                   })}
