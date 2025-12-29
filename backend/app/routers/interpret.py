@@ -248,7 +248,8 @@ async def generate_premium_report(
             target_year=final_year,
             user_question=payload.question,
             name=payload.name,
-            mode="premium_business_30p"
+            mode="premium_business_30p",
+            survey_data=payload.survey_data  # 🔥🔥🔥 P0: 설문 데이터 전달
         )
         
         return JSONResponse(content=report)
@@ -484,7 +485,8 @@ async def _run_report_generation(
     feature_tags: list,
     target_year: int,
     user_question: str,
-    name: str
+    name: str,
+    survey_data: dict = None  # 🔥🔥🔥 P0: 설문 데이터 파라미터 추가
 ):
     """백그라운드 리포트 생성 태스크"""
     try:
@@ -496,7 +498,8 @@ async def _run_report_generation(
             user_question=user_question,
             name=name,
             mode="premium_business_30p",
-            job_id=job_id
+            job_id=job_id,
+            survey_data=survey_data  # 🔥🔥🔥 P0: 설문 데이터 전달
         )
     except Exception as e:
         logger.error(f"[AsyncReport] Job {job_id} 실패: {e}")
@@ -559,7 +562,8 @@ async def generate_report_async(
         feature_tags=feature_tags,
         target_year=final_year,
         user_question=payload.question,
-        name=payload.name
+        name=payload.name,
+        survey_data=payload.survey_data  # 🔥🔥🔥 P0: 설문 데이터 전달
     )
     
     return JSONResponse(content={
@@ -670,11 +674,39 @@ async def get_report_result(
     Job이 완료되면 최종 결과를 반환합니다.
     진행 중이면 현재 상태를 반환합니다.
     """
+    # 🔥🔥🔥 P0-B: 디버깅 로그 3종
+    logger.info(f"[ReportResult] 프론트 조회 job_id={job_id}")
+    
     job = await job_store.get_job(job_id)
+    
+    # 🔥🔥🔥 P0-B: Supabase jobs 테이블 존재 여부 로그
+    job_exists = job is not None
+    logger.info(f"[ReportResult] jobs 테이블 row 존재={job_exists} | job_id={job_id}")
+    
     if not job:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
     
+    # 🔥🔥🔥 P0-B: report_sections 저장 row 개수 로그
+    sections_in_result = []
+    if job.final_result:
+        sections_in_result = job.final_result.get("sections", [])
+    section_count = len(sections_in_result)
+    logger.info(f"[ReportResult] report_sections row 개수={section_count} | job_id={job_id}")
+    
     if job.status == JobStatus.COMPLETED and job.final_result:
+        # 🔥🔥🔥 P0-B: 섹션이 0개면 명시적 에러 메시지
+        if section_count == 0:
+            logger.error(f"[ReportResult] ⚠️ 섹션 0개! 저장 실패(컬럼 mismatch 또는 job_id mismatch) | job_id={job_id}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "failed",
+                    "job_id": job_id,
+                    "error_code": "SECTION_SAVE_FAILED",
+                    "error": "섹션 저장 실패(컬럼 mismatch 또는 job_id mismatch). 백엔드 로그를 확인하세요."
+                }
+            )
+        
         return JSONResponse(content={
             "status": "completed",
             "job_id": job_id,
@@ -682,12 +714,15 @@ async def get_report_result(
         })
     
     if job.status == JobStatus.FAILED:
+        # 🔥🔥🔥 P0-B: 실패 시 error_code 추가
+        logger.error(f"[ReportResult] Job 실패 | job_id={job_id} | error={job.error_message}")
         return JSONResponse(
             status_code=500,
             content={
                 "status": "failed",
                 "job_id": job_id,
-                "error": job.error_message
+                "error_code": "JOB_FAILED",
+                "error": job.error_message or "Unknown error"
             }
         )
     

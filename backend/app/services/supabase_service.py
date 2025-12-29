@@ -41,17 +41,18 @@ def sanitize_report_content(text: str) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # 🔥 P0: 1인 자영업자용 섹션 스펙
+# 🔥🔥🔥 P0: 신규 섹션 ID로 업데이트
 SECTION_SPECS = [
-    {"id": "exec", "title": "2026년, 내 장사 설계도", "order": 1},
-    {"id": "money", "title": "현금흐름 & 수익구조", "order": 2},
-    {"id": "business", "title": "사업 전략 & 확장 타이밍", "order": 3},
-    {"id": "team", "title": "협력자 & 파트너 리스크", "order": 4},
-    {"id": "health", "title": "체력 & 번아웃 관리", "order": 5},
-    {"id": "calendar", "title": "12개월 캘린더", "order": 6},
-    {"id": "sprint", "title": "90일 스프린트 플랜", "order": 7},
+    {"id": "business_climate", "title": "🌦️ 2026 비즈니스 전략 기상도", "order": 1},
+    {"id": "cashflow", "title": "💰 자본 유동성 및 현금흐름 최적화", "order": 2},
+    {"id": "market_product", "title": "📍 시장 포지셔닝 및 상품 확장 전략", "order": 3},
+    {"id": "team_partnership", "title": "🤝 조직 확장 및 파트너십 가이드", "order": 4},
+    {"id": "owner_risk", "title": "🧯 오너 리스크 관리 및 번아웃 방어", "order": 5},
+    {"id": "sprint_12m", "title": "🗓️ 12개월 비즈니스 스프린트 캘린더", "order": 6},
+    {"id": "action_90d", "title": "🚀 향후 90일 매출 극대화 액션플랜", "order": 7},
 ]
 
-SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
+SECTION_ORDER = ["business_climate", "cashflow", "market_product", "team_partnership", "owner_risk", "sprint_12m", "action_90d"]
 
 
 class SupabaseService:
@@ -174,13 +175,17 @@ class SupabaseService:
     
     async def save_section(self, job_id: str, section_id: str, content_json: Dict = None):
         """
-        🔥🔥🔥 P0 핵심: 섹션 저장 (content 필수 저장)
-        - body_markdown, markdown, content 3개 컬럼 모두 저장
+        🔥🔥🔥 P0 핵심: 섹션 저장
+        - CANONICAL COLUMN: body_markdown (프론트는 이 컬럼만 읽어야 함)
+        - markdown, content도 동일 값으로 저장 (하위 호환)
         - sanitize_report_content()로 RC-xxxx, 근거: 제거
         - char_count, confidence, error, title, section_order도 저장
         - raw_json은 원본 그대로 보존 (근거 추적용)
         """
         client = self._get_client()
+        
+        # 🔥🔥🔥 P0-C: 저장 시작 로깅
+        logger.info(f"[Supabase:save_section] 시작 | job_id={job_id} | section_id={section_id}")
 
         existing = client.table("report_sections").select("id").eq(
             "job_id", job_id).eq("section_id", section_id).execute()
@@ -196,7 +201,7 @@ class SupabaseService:
             # 🔥 P0: raw_json은 원본 그대로 저장 (근거 추적용)
             data["raw_json"] = content_json
 
-            # 🔥 P0: body_markdown/markdown/content 중 하나 추출
+            # 🔥🔥🔥 P0-C: CANONICAL COLUMN = body_markdown
             md = (
                 content_json.get("body_markdown")
                 or content_json.get("markdown")
@@ -207,10 +212,10 @@ class SupabaseService:
             # 🔥 P0: sanitize 적용 (사용자용)
             md_sanitized = sanitize_report_content(md)
 
-            # 🔥 P0 핵심: 3개 컬럼 모두 저장
-            data["body_markdown"] = md_sanitized
-            data["markdown"] = md_sanitized
-            data["content"] = md_sanitized
+            # 🔥🔥🔥 P0-C 핵심: body_markdown이 CANONICAL, 나머지는 하위 호환
+            data["body_markdown"] = md_sanitized  # 🔥 CANONICAL COLUMN
+            data["markdown"] = md_sanitized       # 하위 호환
+            data["content"] = md_sanitized        # 하위 호환
             data["char_count"] = len(md_sanitized)
             
             # title 저장
@@ -231,21 +236,27 @@ class SupabaseService:
             if section_id in SECTION_ORDER:
                 data["section_order"] = SECTION_ORDER.index(section_id) + 1
             
-            # 🔥 검증: 저장할 내용이 비어있으면 경고
+            # 🔥🔥🔥 P0-C: 저장 전 검증 로깅
             if len(md_sanitized) < 100:
-                logger.warning(f"[Supabase] ⚠️⚠️⚠️ 섹션 내용이 너무 짧음: {section_id} | {len(md_sanitized)}자")
-                logger.warning(f"[Supabase] content_json keys: {list(content_json.keys())}")
-                logger.warning(f"[Supabase] body_markdown length: {len(content_json.get('body_markdown', ''))}")
+                logger.error(f"[Supabase:save_section] ⚠️ 섹션 내용 너무 짧음! section={section_id} | char_count={len(md_sanitized)}")
+                logger.error(f"[Supabase:save_section] content_json keys: {list(content_json.keys())}")
+                logger.error(f"[Supabase:save_section] body_markdown원본: {len(content_json.get('body_markdown', ''))}자")
             else:
-                logger.info(f"[Supabase] ✅ 섹션 저장 준비: {section_id} | char_count={len(md_sanitized)}")
+                logger.info(f"[Supabase:save_section] ✅ 저장 준비 완료: section={section_id} | char_count={len(md_sanitized)}")
 
-        if existing.data:
-            client.table("report_sections").update(data).eq(
-                "job_id", job_id).eq("section_id", section_id).execute()
-            logger.info(f"[Supabase] ✅ 섹션 UPDATE: {section_id} | {data.get('char_count', 0)}자")
-        else:
-            client.table("report_sections").insert(data).execute()
-            logger.info(f"[Supabase] ✅ 섹션 INSERT: {section_id} | {data.get('char_count', 0)}자")
+        try:
+            if existing.data:
+                result = client.table("report_sections").update(data).eq(
+                    "job_id", job_id).eq("section_id", section_id).execute()
+                logger.info(f"[Supabase:save_section] ✅ UPDATE 완료: section={section_id} | char_count={data.get('char_count', 0)}")
+            else:
+                result = client.table("report_sections").insert(data).execute()
+                logger.info(f"[Supabase:save_section] ✅ INSERT 완료: section={section_id} | char_count={data.get('char_count', 0)}")
+            
+            # 🔥🔥🔥 P0-C: 저장 결과 검증
+            logger.info(f"[Supabase:save_section] 저장 결과: {len(result.data) if result.data else 0}개 row 영향")
+        except Exception as e:
+            logger.error(f"[Supabase:save_section] ❌ 저장 실패! section={section_id} | error={str(e)[:200]}")
     
     async def get_sections(self, job_id: str) -> List[Dict]:
         """섹션 조회"""
