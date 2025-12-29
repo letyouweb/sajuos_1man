@@ -635,6 +635,21 @@ class SectionRuleCardAllocation:
     allocated_count: int
     allocated_card_ids: List[str]
     context_text: str
+    engine_headline: str  # 🔥 P0: 1위 룰카드의 interpretation 첫 문장
+    top_card_id: str  # 🔥 P0: 1위 룰카드 ID
+
+
+def extract_first_sentence(text: str) -> str:
+    """텍스트에서 첫 문장 추출 (마침표/물음표/느낌표 기준)"""
+    if not text:
+        return ""
+    # 첫 문장 추출 (., ?, ! 기준)
+    import re
+    match = re.match(r'^[^.!?]*[.!?]', text.strip())
+    if match:
+        return match.group(0).strip()
+    # 마침표 없으면 첫 100자
+    return text.strip()[:100]
 
 
 def allocate_rulecards_to_section(
@@ -658,6 +673,17 @@ def allocate_rulecards_to_section(
     scored.sort(key=lambda x: x[0], reverse=True)
     allocated = [card for _, card in scored[:max_cards]]
     
+    # 🔥🔥🔥 P0 Engine Headline: 1위 룰카드의 interpretation 첫 문장 추출
+    engine_headline = ""
+    top_card_id = ""
+    if allocated:
+        top_card = allocated[0]
+        top_card_id = top_card.get("id", top_card.get("_id", ""))
+        # interpretation 필드에서 첫 문장 추출
+        interpretation = top_card.get("interpretation", "") or top_card.get("mechanism", "") or top_card.get("topic", "")
+        engine_headline = extract_first_sentence(sanitize_for_business(interpretation))
+        logger.info(f"[Engine Headline:{section_id}] Top Card: {top_card_id} → '{engine_headline[:50]}...'")
+    
     lines = []
     ids = []
     for card in allocated:
@@ -674,7 +700,7 @@ def allocate_rulecards_to_section(
         lines.append(line)
     
     context = "\n".join(lines) if lines else "분석 데이터 없음"
-    return SectionRuleCardAllocation(section_id, len(ids), ids, context)
+    return SectionRuleCardAllocation(section_id, len(ids), ids, context, engine_headline, top_card_id)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1027,6 +1053,44 @@ def get_section_user_prompt(
     """
     spec = PREMIUM_SECTIONS.get(section_id)
     
+    # 🔥🔥🔥 P0 Engine Headline: 룰카드 0개면 조기 종료
+    if allocation.allocated_count == 0:
+        return f"""## ⚠️ 룰카드 매칭 결과: 0개
+
+**현재 구조상 해당 리스크는 감지되지 않았습니다.**
+
+이 섹션({spec.title if spec else section_id})에 대해 억지로 작성하지 마세요.
+대신 아래 내용만 body_markdown에 작성하세요:
+
+```
+## {spec.title if spec else section_id}
+
+현재 사주 구조와 설문 데이터 분석 결과, 이 영역에서 특별히 주의가 필요한 리스크는 감지되지 않았습니다.
+
+다만 분기별 점검을 권장합니다:
+- Q1: 현금흐름 점검
+- Q2: 고객 피드백 수집
+- Q3: 운영 효율화 검토
+- Q4: 내년도 계획 수립
+```
+"""
+    
+    # 🔥🔥🔥 P0 Engine Headline: 1위 룰카드 첫 문장 강제 삽입
+    engine_headline_rule = ""
+    if allocation.engine_headline:
+        engine_headline_rule = f"""
+## 🔥🔥🔥 [Engine Headline 규칙 - 최우선!] 🔥🔥🔥
+
+**body_markdown의 첫 문장은 반드시 아래 문장을 그대로 복사하세요. 수정 금지!**
+
+> **{allocation.engine_headline}**
+
+이 문장은 스코어 1위 룰카드({allocation.top_card_id})에서 추출한 핵심 결론입니다.
+LLM이 이 문장을 변경하면 재생성됩니다.
+
+이후 문단에서만 survey_data를 결합해 "비즈니스적 이유/실행계획"을 설명하세요.
+"""
+    
     # 🔥 사주 4주 추출 (이게 핵심!)
     year_pillar = saju_data.get("year_pillar", "-")
     month_pillar = saju_data.get("month_pillar", "-")
@@ -1041,7 +1105,9 @@ def get_section_user_prompt(
     if not year_pillar or year_pillar == "-":
         logger.warning(f"[Prompt:{section_id}] ⚠️ 사주 데이터 누락! year_pillar={year_pillar}")
     
-    return f"""## 🔮 클라이언트 사주 원국 (필수 참조)
+    return f"""{engine_headline_rule}
+
+## 🔮 클라이언트 사주 원국 (필수 참조)
 
 **이 분석은 아래 사주를 기반으로 합니다. 반드시 이 4주를 해석에 반영하세요.**
 
@@ -1066,12 +1132,13 @@ def get_section_user_prompt(
 위 사주 원국과 RuleCards를 기반으로 **{spec.title if spec else section_id}** 섹션을 작성하세요.
 
 ⚠️ 핵심 규칙:
-1. 위 사주 4주(년/월/일/시)를 반드시 해석에 반영
-2. 일간 {day_master}({day_master_element})의 특성을 모든 전략에 연결
-3. 반드시 한국어로만 작성
-4. 취업/자격증/이력서/면접 관련 내용 절대 금지
-5. 매출, 수익, 현금흐름, ROI, KPI 중심으로 작성
-6. 최소 {spec.min_chars if spec else 2000}자 이상
+1. **body_markdown 첫 문장은 Engine Headline 그대로 복사!** (수정 금지)
+2. 위 사주 4주(년/월/일/시)를 반드시 해석에 반영
+3. 일간 {day_master}({day_master_element})의 특성을 모든 전략에 연결
+4. 반드시 한국어로만 작성
+5. 취업/자격증/이력서/면접 관련 내용 절대 금지
+6. 매출, 수익, 현금흐름, ROI, KPI 중심으로 작성
+7. 최소 {spec.min_chars if spec else 2000}자 이상
 7. JSON 스키마에 정확히 맞춰 응답"""
 
 
@@ -1202,7 +1269,10 @@ class PremiumReportBuilder:
             ]
             response_format = get_section_schema(section_id)
             
-            logger.info(f"[Section:{section_id}] 시작 | RuleCards={allocation.allocated_count}장")
+            logger.info(f"[Section:{section_id}] 시작 | RuleCards={allocation.allocated_count}장 | Engine Headline: '{allocation.engine_headline[:30] if allocation.engine_headline else 'N/A'}...'")
+            
+            # 🔥 P0 Engine Headline: 루프 외부에서 변수 초기화
+            engine_headline_valid = True
             
             for regen_attempt in range(max_regeneration + 1):
                 content = await self._call_with_retry(
@@ -1239,6 +1309,21 @@ class PremiumReportBuilder:
                             errors.append(f"QUALITY_GATE:{issue.type}")
                     logger.warning(f"[Section:{section_id}] 품질 게이트 점수: {quality_report.score}/100")
                 
+                # 🔥🔥🔥 P0 Engine Headline 검증: body_markdown이 engine_headline으로 시작해야 함
+                engine_headline_valid = True
+                if allocation.engine_headline:
+                    # 마크다운 헤더 제거 후 첫 실제 문장 추출
+                    body_lines = [l.strip() for l in body_text.split('\n') if l.strip() and not l.strip().startswith('#')]
+                    first_content_line = body_lines[0] if body_lines else ""
+                    
+                    # engine_headline의 첫 20자가 body_markdown 첫 줄에 포함되어야 함
+                    headline_prefix = allocation.engine_headline[:20].strip()
+                    if headline_prefix and headline_prefix not in first_content_line[:100]:
+                        engine_headline_valid = False
+                        errors.append(f"ENGINE_HEADLINE_MISMATCH (expected: '{headline_prefix}...')")
+                        logger.warning(f"[Section:{section_id}] ⚠️ Engine Headline 불일치! expected='{headline_prefix}...', got='{first_content_line[:50]}...'")
+                        is_valid = False
+                
                 if is_valid:
                     logger.info(f"[Section:{section_id}] ✅ 가드레일 통과")
                     break
@@ -1254,6 +1339,29 @@ class PremiumReportBuilder:
                         logger.error(f"[Section:{section_id}] ❌ 가드레일 최종 실패 | Errors: {errors}")
             
             latency_ms = int((time.time() - start_time) * 1000)
+            
+            # 🔥🔥🔥 P0 Engine Headline: 최종 실패 시 prepend 강제
+            if allocation.engine_headline and not engine_headline_valid:
+                original_body = content.get("body_markdown", "")
+                # 헤더 찾아서 그 다음에 engine_headline 삽입
+                lines = original_body.split('\n')
+                new_lines = []
+                headline_inserted = False
+                for line in lines:
+                    new_lines.append(line)
+                    # 첫 번째 헤더(## 또는 #) 다음에 삽입
+                    if not headline_inserted and line.strip().startswith('#'):
+                        new_lines.append("")
+                        new_lines.append(f"**{allocation.engine_headline}**")
+                        new_lines.append("")
+                        headline_inserted = True
+                
+                if not headline_inserted:
+                    # 헤더가 없으면 맨 앞에 삽입
+                    new_lines = [f"**{allocation.engine_headline}**", ""] + lines
+                
+                content["body_markdown"] = '\n'.join(new_lines)
+                logger.info(f"[Section:{section_id}] 🔥 Engine Headline 강제 삽입 완료: '{allocation.engine_headline[:30]}...'")
             
             # 🔥 P0-2: ok 필드 명확히 반환 (is_valid 기반)
             return {
