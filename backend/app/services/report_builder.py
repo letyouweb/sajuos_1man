@@ -182,13 +182,13 @@ class SectionSpec:
 
 
 PREMIUM_SECTIONS: Dict[str, SectionSpec] = {
-    "exec": SectionSpec(id="exec", title="Executive Summary", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
-    "money": SectionSpec(id="money", title="Money & Cashflow", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "business": SectionSpec(id="business", title="Business Strategy", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "team": SectionSpec(id="team", title="Team & Partner Risk", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
-    "health": SectionSpec(id="health", title="Health & Performance", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
-    "calendar": SectionSpec(id="calendar", title="12-Month Calendar", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
-    "sprint": SectionSpec(id="sprint", title="90-Day Sprint Plan", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
+    "exec": SectionSpec(id="exec", title="2026년, 내 장사 설계도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
+    "money": SectionSpec(id="money", title="현금흐름 & 수익구조", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "business": SectionSpec(id="business", title="사업 전략 & 확장 타이밍", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "team": SectionSpec(id="team", title="협력자 & 파트너 리스크", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
+    "health": SectionSpec(id="health", title="체력 & 번아웃 관리", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
+    "calendar": SectionSpec(id="calendar", title="12개월 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
+    "sprint": SectionSpec(id="sprint", title="90일 스프린트 플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
 }
 
 

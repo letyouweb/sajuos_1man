@@ -40,14 +40,15 @@ def sanitize_report_content(text: str) -> str:
 # 섹션 정의
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# 🔥 P0: 1인 자영업자용 섹션 스펙
 SECTION_SPECS = [
-    {"id": "exec", "title": "Executive Summary", "order": 1},
-    {"id": "money", "title": "Money & Cashflow", "order": 2},
-    {"id": "business", "title": "Business Strategy", "order": 3},
-    {"id": "team", "title": "Team & Partner", "order": 4},
-    {"id": "health", "title": "Health & Performance", "order": 5},
-    {"id": "calendar", "title": "12-Month Calendar", "order": 6},
-    {"id": "sprint", "title": "90-Day Sprint", "order": 7},
+    {"id": "exec", "title": "2026년, 내 장사 설계도", "order": 1},
+    {"id": "money", "title": "현금흐름 & 수익구조", "order": 2},
+    {"id": "business", "title": "사업 전략 & 확장 타이밍", "order": 3},
+    {"id": "team", "title": "협력자 & 파트너 리스크", "order": 4},
+    {"id": "health", "title": "체력 & 번아웃 관리", "order": 5},
+    {"id": "calendar", "title": "12개월 캘린더", "order": 6},
+    {"id": "sprint", "title": "90일 스프린트 플랜", "order": 7},
 ]
 
 SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
