@@ -79,7 +79,7 @@ export default function SajuForm({ onSubmit }: SajuFormProps) {
       birthMinute: 0,
       gender,
       concernType,
-      question: question || surveyData.urgent_question || '올해 사업 운영에서 가장 집중해야 할 영역이 궁금합니다.',
+      question: question || '올해 사업 운영에서 가장 집중해야 할 영역이 궁금합니다.',
       surveyData,
     });
   };
