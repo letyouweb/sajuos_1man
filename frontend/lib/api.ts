@@ -22,17 +22,22 @@ import type {
 const PROD_API_URL = 'https://api.sajuos.com';
 const DEV_API_URL = 'http://localhost:8000';
 
+const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, ''); // trim trailing slashes
+const normalizeEndpoint = (endpoint: string) => endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+const joinUrl = (base: string, endpoint: string) =>
+  `${normalizeBaseUrl(base)}${normalizeEndpoint(endpoint)}`;
+
 function getApiBaseUrl(): string {
   // 🔥 프로덕션 환경에서는 무조건 api.sajuos.com
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    return PROD_API_URL;
+    return normalizeBaseUrl(PROD_API_URL);
   }
   
   // 개발 환경에서만 환경변수 또는 localhost
   const url = process.env.NEXT_PUBLIC_API_URL;
-  if (url) return url;
+  if (url) return normalizeBaseUrl(url);
   
-  return DEV_API_URL;
+  return normalizeBaseUrl(DEV_API_URL);
 }
 
 export const API_BASE_URL = getApiBaseUrl();
@@ -50,7 +55,7 @@ async function fetchApi<T>(
   options: FetchOptions = {}
 ): Promise<T> {
   const { method = 'GET', body, timeout = 30000 } = options;
-  const fullUrl = `${API_BASE_URL}${endpoint}`;
+  const fullUrl = joinUrl(API_BASE_URL, endpoint);
   
   console.log(`[API] ${method} ${fullUrl}`);  // 🔥 디버그 로그
   

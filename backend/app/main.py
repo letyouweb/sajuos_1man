@@ -60,8 +60,8 @@ except Exception as e:
 try:
     from app.routers import reports
     app.include_router(reports.router, prefix="/api/v1", tags=["Reports"])
-    app.include_router(reports.router, prefix="/api", include_in_schema=False)
-    logger.info("✅ reports 라우터 등록 (/api/v1/reports + /api/reports)")
+    # 🔥 P0: /api/v1 하나로만 통일 - /api 중복 등록 제거
+    logger.info("✅ reports 라우터 등록: /api/v1/reports (단일)")
 except Exception as e:
     logger.error(f"❌ reports 라우터 등록 실패: {e}")
 
@@ -164,6 +164,14 @@ async def startup():
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"✅ Startup 완료 - SajuOS V1.0 준비 완료")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    # 🔥 P0: 등록된 라우트 목록 출력 (증거용)
+    logger.info(f"")
+    logger.info(f"📍 등록된 라우트 목록:")
+    for route in app.routes:
+        if hasattr(route, 'path') and hasattr(route, 'methods'):
+            methods = ','.join(route.methods) if route.methods else 'GET'
+            logger.info(f"   [{methods}] {route.path}")
     logger.info(f"")
 
 
