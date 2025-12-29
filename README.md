@@ -1,0 +1,130 @@
+# 🔮 AI 사주 서비스 - 천문학 기반
+
+NASA JPL 데이터 기반 **ephem** 라이브러리를 사용하여 24절기를 '분' 단위까지 정밀하게 판별합니다.
+
+## ✅ 검증 완료
+
+| 날짜 | 시간 | 황경 | 년주 | 월주 | 일주 | 시주 |
+|------|------|------|------|------|------|------|
+| **1978-05-16** | **11:00** | **55.17°** | 무오 ✅ | 정사 ✅ | 무인 ✅ | 정사 ✅ |
+
+## 🚀 배포 가이드
+
+### 구조
+
+```
+saju/
+├── frontend/     → Vercel (Next.js)
+└── backend/      → Railway (FastAPI + ephem)
+```
+
+⚠️ **중요**: `ephem` 라이브러리는 C 확장이 필요해서 Vercel Serverless에서 작동하지 않습니다.  
+따라서 **Backend는 Railway**에 배포합니다.
+
+---
+
+### 1️⃣ Backend 배포 (Railway)
+
+1. **Railway 가입**: https://railway.app
+
+2. **새 프로젝트 생성**:
+   - "New Project" → "Deploy from GitHub Repo"
+   - `saju` 저장소 선택
+   - **Root Directory**: `backend` 설정
+
+3. **환경변수 설정** (Railway Dashboard):
+   ```
+   OPENAI_API_KEY=sk-your-key
+   ALLOWED_ORIGINS=https://your-frontend.vercel.app
+   DEBUG=false
+   ```
+
+4. **배포 확인**:
+   - 자동 배포됨 (Dockerfile 사용)
+   - URL 복사: `https://your-backend.railway.app`
+
+---
+
+### 2️⃣ Frontend 배포 (Vercel)
+
+1. **Vercel 가입**: https://vercel.com
+
+2. **새 프로젝트 생성**:
+   - "Add New" → "Project"
+   - GitHub 저장소 연결
+   - **Root Directory**: `frontend` 설정
+
+3. **환경변수 설정** (Vercel Dashboard):
+   ```
+   NEXT_PUBLIC_API_URL=https://your-backend.railway.app
+   ```
+
+4. **배포**:
+   - Deploy 버튼 클릭
+   - URL: `https://your-project.vercel.app`
+
+---
+
+### 3️⃣ CORS 연결
+
+Backend Railway에서 Frontend Vercel 도메인 허용:
+
+```bash
+# Railway 환경변수
+ALLOWED_ORIGINS=https://your-frontend.vercel.app,http://localhost:3000
+```
+
+---
+
+## 🛠️ 로컬 개발
+
+### Backend
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate  # Windows
+
+pip install -r requirements.txt
+cp .env.example .env   # OPENAI_API_KEY 설정
+
+uvicorn app.main:app --reload --port 8000
+```
+
+### Frontend
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local  # API URL 설정
+
+npm run dev
+```
+
+---
+
+## 📡 API 엔드포인트
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/api/v1/calculate` | 사주 계산 |
+| POST | `/api/v1/interpret` | AI 해석 |
+| GET | `/api/v1/calculate/hour-options` | 시간대 옵션 |
+| GET | `/api/v1/calculate/compare` | 태양시 ON/OFF 비교 |
+
+---
+
+## 🔒 핵심 원칙
+
+1. **Source of Truth**: ephem (NASA JPL 데이터)
+2. **Anchor**: 2000.1.1 = 무오일 (불변)
+3. **태양시 Toggle**: 사용자 선택 가능
+4. **fallback 금지**: 계산 실패시 에러 반환
+
+---
+
+## ⚠️ 면책 조항
+
+본 서비스는 **오락/참고 목적**으로 제공되며, 의학/법률/투자 등 전문적 조언을 대체하지 않습니다.
+
+---
+
+**Made with ❤️ by LetYou**
