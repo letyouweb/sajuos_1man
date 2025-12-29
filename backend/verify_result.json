@@ -1,0 +1,37 @@
+{
+  "test_1978_05_16_11h": {
+    "input": "1978-05-16 11:00",
+    "result": {
+      "year": "무오",
+      "month": "정사",
+      "day": "무인",
+      "time": "정사"
+    },
+    "expected": {
+      "year": "무오",
+      "month": "정사",
+      "day": "무인"
+    }
+  },
+  "test_anchor_2000_01_01": {
+    "input": "2000-01-01",
+    "result": {
+      "year": "기묘",
+      "month": "병자",
+      "day": "무오",
+      "time": "무오"
+    },
+    "expected": {
+      "day": "무오"
+    }
+  },
+  "test_today_2025_12_18": {
+    "input": "2025-12-18 21:00",
+    "result": {
+      "year": "을사",
+      "month": "무자",
+      "day": "신유",
+      "time": "무술"
+    }
+  }
+}

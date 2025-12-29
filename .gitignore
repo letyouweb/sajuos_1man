@@ -1,0 +1,68 @@
+# ===== Frontend (Next.js) =====
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+out/
+dist/
+.vercel/
+.turbo/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# ===== Backend (Python/FastAPI) =====
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution (Python specific - NOT frontend/lib)
+*.egg-info/
+build/
+develop-eggs/
+eggs/
+backend/lib/
+lib64/
+sdist/
+wheels/
+
+# ===== Shared =====
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+coverage/
+.pytest_cache/
+htmlcov/
+
+# Caches
+.eslintcache
+*.tsbuildinfo
+
+# Temp files
+*.tmp
+*.temp

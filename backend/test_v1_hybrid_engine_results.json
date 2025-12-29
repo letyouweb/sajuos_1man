@@ -1,0 +1,725 @@
+{
+  "test_cases": [
+    {
+      "name": "Case1 - 1988-05-15 10:00",
+      "input": {
+        "name": "Case1 - 1988-05-15 10:00",
+        "birth_year": 1988,
+        "birth_month": 5,
+        "birth_day": 15,
+        "birth_hour": 10,
+        "target_year": 2026
+      },
+      "pillars": {
+        "year": "무진(戊辰)",
+        "month": "병진(丙辰)",
+        "day": "경오(庚午)",
+        "hour": "신사"
+      },
+      "derived": {
+        "day_master": "경",
+        "day_master_element": "금",
+        "is_strong_self": true,
+        "structure": "신강",
+        "dominant_ten_god": "인성",
+        "strong_elements": [
+          "토",
+          "화"
+        ],
+        "weak_elements": [
+          "화",
+          "금"
+        ]
+      },
+      "match_summary": {
+        "ELEM": {
+          "count": 8,
+          "top_cards": [
+            {
+              "card_id": "RC-ELEM-COMBO-0",
+              "score": 13.2,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.3484600358478347,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.196920071695668
+              }
+            },
+            {
+              "card_id": "RC-ELEM-COMBO-1",
+              "score": 13.2,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.3484600358478347,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.196920071695668
+              }
+            },
+            {
+              "card_id": "RC-ELEM-COMBO-6",
+              "score": 13.2,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.3484600358478347,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.196920071695668
+              }
+            }
+          ],
+          "avg_score": 12.95
+        },
+        "TEN": {
+          "count": 7,
+          "top_cards": [
+            {
+              "card_id": "RC-TEN-COMBO-0",
+              "score": 15.22,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.610917912644224,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.221835825288448
+              }
+            },
+            {
+              "card_id": "RC-TEN-COMBO-3",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            },
+            {
+              "card_id": "RC-TEN-COMBO-4",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            }
+          ],
+          "avg_score": 14.38
+        },
+        "STRU": {
+          "count": 4,
+          "top_cards": [
+            {
+              "card_id": "RC-STRU-신강",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            },
+            {
+              "card_id": "RC-STRU-재왕신강",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            },
+            {
+              "card_id": "RC-STRU-ADD-인성과다",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            }
+          ],
+          "avg_score": 15.03
+        },
+        "SURV": {
+          "count": 5,
+          "top_cards": [
+            {
+              "card_id": "RC-SURV-조화",
+              "score": 14.4,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 14.396267313345827
+              }
+            },
+            {
+              "card_id": "RC-SURV-안정",
+              "score": 13.9,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.896267313345827
+              }
+            },
+            {
+              "card_id": "RC-SURV-자립",
+              "score": 13.9,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.896267313345827
+              }
+            }
+          ],
+          "avg_score": 14.0
+        },
+        "APPL": {
+          "count": 5,
+          "top_cards": [
+            {
+              "card_id": "RC-APPL-경-화",
+              "score": 14.0,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.748311160006838,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.996622320013676
+              }
+            },
+            {
+              "card_id": "RC-APPL-경-목",
+              "score": 13.84,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.917770732084279,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.835541464168557
+              }
+            },
+            {
+              "card_id": "RC-APPL-경-수",
+              "score": 13.84,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.917770732084279,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.835541464168557
+              }
+            }
+          ],
+          "avg_score": 13.87
+        }
+      },
+      "validation": {
+        "pillars_valid": true,
+        "rulecards_loaded": 110,
+        "matches_valid": true,
+        "scores_valid": true,
+        "total_matched_cards": 29,
+        "all_checks_passed": true
+      },
+      "errors": []
+    },
+    {
+      "name": "Case2 - 1990-12-25 14:00",
+      "input": {
+        "name": "Case2 - 1990-12-25 14:00",
+        "birth_year": 1990,
+        "birth_month": 12,
+        "birth_day": 25,
+        "birth_hour": 14,
+        "target_year": 2026
+      },
+      "pillars": {
+        "year": "경오(庚午)",
+        "month": "무자(戊子)",
+        "day": "갑자(甲子)",
+        "hour": "신미"
+      },
+      "derived": {
+        "day_master": "갑",
+        "day_master_element": "목",
+        "is_strong_self": true,
+        "structure": "신강",
+        "dominant_ten_god": "인성",
+        "strong_elements": [
+          "금",
+          "토"
+        ],
+        "weak_elements": [
+          "목",
+          "화"
+        ]
+      },
+      "match_summary": {
+        "ELEM": {
+          "count": 8,
+          "top_cards": [
+            {
+              "card_id": "RC-ELEM-COMBO-0",
+              "score": 13.33,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.4138687803538956,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.327737560707792
+              }
+            },
+            {
+              "card_id": "RC-ELEM-COMBO-1",
+              "score": 13.29,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.3947912298729612,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.289582459745922
+              }
+            },
+            {
+              "card_id": "RC-ELEM-COMBO-6",
+              "score": 13.29,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.3947912298729612,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.289582459745922
+              }
+            }
+          ],
+          "avg_score": 12.96
+        },
+        "TEN": {
+          "count": 8,
+          "top_cards": [
+            {
+              "card_id": "RC-TEN-COMBO-2",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            },
+            {
+              "card_id": "RC-TEN-COMBO-3",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            },
+            {
+              "card_id": "RC-TEN-COMBO-6",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            }
+          ],
+          "avg_score": 14.27
+        },
+        "STRU": {
+          "count": 4,
+          "top_cards": [
+            {
+              "card_id": "RC-STRU-신강",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            },
+            {
+              "card_id": "RC-STRU-재왕신강",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            },
+            {
+              "card_id": "RC-STRU-ADD-인성과다",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            }
+          ],
+          "avg_score": 15.03
+        },
+        "SURV": {
+          "count": 5,
+          "top_cards": [
+            {
+              "card_id": "RC-SURV-조화",
+              "score": 14.4,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 14.396267313345827
+              }
+            },
+            {
+              "card_id": "RC-SURV-안정",
+              "score": 13.9,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.896267313345827
+              }
+            },
+            {
+              "card_id": "RC-SURV-자립",
+              "score": 13.9,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.896267313345827
+              }
+            }
+          ],
+          "avg_score": 14.0
+        },
+        "APPL": {
+          "count": 5,
+          "top_cards": [
+            {
+              "card_id": "RC-APPL-갑-화",
+              "score": 14.09,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.7967281806003927,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 14.093456361200786
+              }
+            },
+            {
+              "card_id": "RC-APPL-갑-토",
+              "score": 13.59,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.7967281806003927,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.593456361200786
+              }
+            },
+            {
+              "card_id": "RC-APPL-갑-금",
+              "score": 13.59,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.7967281806003927,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.593456361200786
+              }
+            }
+          ],
+          "avg_score": 13.67
+        }
+      },
+      "validation": {
+        "pillars_valid": true,
+        "rulecards_loaded": 110,
+        "matches_valid": true,
+        "scores_valid": true,
+        "total_matched_cards": 30,
+        "all_checks_passed": true
+      },
+      "errors": []
+    },
+    {
+      "name": "Case3 - 1985-03-08 06:00",
+      "input": {
+        "name": "Case3 - 1985-03-08 06:00",
+        "birth_year": 1985,
+        "birth_month": 3,
+        "birth_day": 8,
+        "birth_hour": 6,
+        "target_year": 2026
+      },
+      "pillars": {
+        "year": "을축(乙丑)",
+        "month": "무인(戊寅)",
+        "day": "병오(丙午)",
+        "hour": "신묘"
+      },
+      "derived": {
+        "day_master": "병",
+        "day_master_element": "화",
+        "is_strong_self": true,
+        "structure": "신강",
+        "dominant_ten_god": "인성",
+        "strong_elements": [
+          "목",
+          "토"
+        ],
+        "weak_elements": [
+          "화",
+          "금"
+        ]
+      },
+      "match_summary": {
+        "ELEM": {
+          "count": 8,
+          "top_cards": [
+            {
+              "card_id": "RC-ELEM-COMBO-6",
+              "score": 13.42,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.459654901508138,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.419309803016276
+              }
+            },
+            {
+              "card_id": "RC-ELEM-COMBO-1",
+              "score": 13.33,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.4138687803538956,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.327737560707792
+              }
+            },
+            {
+              "card_id": "RC-ELEM-COMBO-0",
+              "score": 13.13,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.3137116403289895,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 13.127423280657979
+              }
+            }
+          ],
+          "avg_score": 13.05
+        },
+        "TEN": {
+          "count": 8,
+          "top_cards": [
+            {
+              "card_id": "RC-TEN-COMBO-2",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            },
+            {
+              "card_id": "RC-TEN-COMBO-4",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            },
+            {
+              "card_id": "RC-TEN-COMBO-7",
+              "score": 14.65,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 4.323235840192444,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 14.646471680384888
+              }
+            }
+          ],
+          "avg_score": 14.25
+        },
+        "STRU": {
+          "count": 4,
+          "top_cards": [
+            {
+              "card_id": "RC-STRU-신강",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            },
+            {
+              "card_id": "RC-STRU-재왕신강",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            },
+            {
+              "card_id": "RC-STRU-ADD-인성과다",
+              "score": 15.03,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 15.032766041504777
+              }
+            }
+          ],
+          "avg_score": 15.03
+        },
+        "SURV": {
+          "count": 5,
+          "top_cards": [
+            {
+              "card_id": "RC-SURV-조화",
+              "score": 14.4,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 14.396267313345827
+              }
+            },
+            {
+              "card_id": "RC-SURV-안정",
+              "score": 13.9,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.896267313345827
+              }
+            },
+            {
+              "card_id": "RC-SURV-자립",
+              "score": 13.9,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 4.448133656672914,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.896267313345827
+              }
+            }
+          ],
+          "avg_score": 14.0
+        },
+        "APPL": {
+          "count": 5,
+          "top_cards": [
+            {
+              "card_id": "RC-SURV-조화",
+              "score": 15.53,
+              "score_details": {
+                "base_score": 5.0,
+                "tag_match_score": 5.0163830207523885,
+                "year_boost": 1.0,
+                "goal_boost": 0.0,
+                "final_score": 15.532766041504777
+              }
+            },
+            {
+              "card_id": "RC-APPL-병-수",
+              "score": 13.84,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.9177707320842794,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.835541464168559
+              }
+            },
+            {
+              "card_id": "RC-APPL-신-수",
+              "score": 13.84,
+              "score_details": {
+                "base_score": 6.0,
+                "tag_match_score": 3.917770732084279,
+                "year_boost": 0.0,
+                "goal_boost": 0.0,
+                "final_score": 13.835541464168557
+              }
+            }
+          ],
+          "avg_score": 14.06
+        }
+      },
+      "validation": {
+        "pillars_valid": true,
+        "rulecards_loaded": 110,
+        "matches_valid": true,
+        "scores_valid": true,
+        "total_matched_cards": 30,
+        "all_checks_passed": true
+      },
+      "errors": []
+    }
+  ],
+  "comparison": {
+    "all_passed": true,
+    "pillars_unique": true,
+    "all_sections_have_cards": true,
+    "final_result": true
+  },
+  "timestamp": 795343.8017842
+}

@@ -1,0 +1,85 @@
+{
+  "engine": "ScientificSajuEngine v2 (ephem astronomical)",
+  "source_of_truth": "NASA JPL Data via ephem library",
+  "tests": {
+    "1978-05-16_11h_solar_on": {
+      "input": "1978-05-16 11:00 (Solar Time ON)",
+      "result": {
+        "year": "무오",
+        "month": "정사",
+        "day": "무인",
+        "time": "정사",
+        "solar_longitude": 55.17,
+        "solar_time_applied": true
+      },
+      "expected": {
+        "year": "무오",
+        "month": "정사",
+        "day": "무인",
+        "time": "정사"
+      },
+      "status": "PASS"
+    },
+    "1978-05-16_11h_solar_off": {
+      "input": "1978-05-16 11:00 (Solar Time OFF)",
+      "result": {
+        "year": "무오",
+        "month": "정사",
+        "day": "무인",
+        "time": "무오",
+        "solar_longitude": 55.17,
+        "solar_time_applied": false
+      },
+      "expected_time": "무오",
+      "status": "PASS"
+    },
+    "anchor_2000-01-01": {
+      "input": "2000-01-01 (Anchor Date)",
+      "result": {
+        "year": "기묘",
+        "month": "병자",
+        "day": "무오",
+        "time": "무오",
+        "solar_longitude": 280.0,
+        "solar_time_applied": true
+      },
+      "expected_day": "무오",
+      "status": "PASS"
+    },
+    "ipchun_before_2025-02-03": {
+      "input": "2025-02-03 (Before Ipchun)",
+      "result": {
+        "year": "갑진",
+        "month": "정축",
+        "day": "계묘",
+        "time": "무오",
+        "solar_longitude": 314.18,
+        "solar_time_applied": true
+      },
+      "expected_year": "갑진 (previous year)"
+    },
+    "ipchun_after_2025-02-05": {
+      "input": "2025-02-05 (After Ipchun)",
+      "result": {
+        "year": "을사",
+        "month": "무인",
+        "day": "을사",
+        "time": "임오",
+        "solar_longitude": 316.21,
+        "solar_time_applied": true
+      },
+      "expected_year": "을사 (current year)"
+    },
+    "today_2025-12-18": {
+      "input": "2025-12-18 21:00",
+      "result": {
+        "year": "을사",
+        "month": "무자",
+        "day": "신유",
+        "time": "무술",
+        "solar_longitude": 266.46,
+        "solar_time_applied": true
+      }
+    }
+  }
+}

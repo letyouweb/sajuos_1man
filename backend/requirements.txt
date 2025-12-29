@@ -1,0 +1,46 @@
+# FastAPI & Server
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.9
+
+# OpenAI - 최신 버전 (2025년)
+openai>=1.50.0
+
+# HTTP & Async
+httpx>=0.27.0
+aiohttp>=3.10.0
+
+# Caching
+cachetools>=5.5.0
+
+# Environment
+python-dotenv>=1.0.1
+
+# Validation
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+email-validator>=2.0.0
+
+# Date/Time
+python-dateutil>=2.9.0
+pytz>=2024.2
+
+# Korean Lunar Calendar
+korean-lunar-calendar>=0.3.1
+
+# ⭐ 천문학 계산 (Source of Truth)
+ephem>=4.1.5
+
+# ⭐ Supabase (DB 영구 저장)
+supabase>=2.0.0
+
+# ⭐ 이메일 발송 (Resend)
+resend>=0.8.0
+
+# ⭐ PDF 생성
+weasyprint>=60.0
+markdown>=3.5.0
+
+# ⭐ 백그라운드 작업
+celery>=5.3.0
+redis>=5.0.0

@@ -1,0 +1,106 @@
+[
+  {
+    "description": "1978년 5월 16일 10시 - 검증된 기준",
+    "input": {"year": 1978, "month": 5, "day": 16, "hour": 10},
+    "expected": {
+      "year_pillar": "무오",
+      "month_pillar": "정사",
+      "day_pillar": "무인",
+      "hour_pillar": "정사"
+    },
+    "note": "회귀 테스트 핵심 케이스 - 절기/시주 정확도 검증"
+  },
+  {
+    "description": "2025년 1월 1일 - 입춘 전",
+    "input": {"year": 2025, "month": 1, "day": 1},
+    "expected": {
+      "year_pillar": "갑진",
+      "is_boundary": false
+    },
+    "note": "입춘(2/3) 전이므로 전년도(2024) 갑진년"
+  },
+  {
+    "description": "2025년 2월 3일 22시 - 입춘 직전 (경계일)",
+    "input": {"year": 2025, "month": 2, "day": 3, "hour": 22},
+    "expected": {
+      "year_pillar": "갑진",
+      "is_boundary": true
+    },
+    "note": "입춘 2/3 23:10 직전 - 경계일, 아직 갑진년"
+  },
+  {
+    "description": "2025년 2월 4일 0시 - 입춘 직후",
+    "input": {"year": 2025, "month": 2, "day": 4, "hour": 0},
+    "expected": {
+      "year_pillar": "을사",
+      "is_boundary": true
+    },
+    "note": "입춘(2/3 23:10) 이후 - 을사년"
+  },
+  {
+    "description": "1996년 5월 20일 14시",
+    "input": {"year": 1996, "month": 5, "day": 20, "hour": 14},
+    "expected": {
+      "year_pillar": "병자"
+    },
+    "note": "입하(5/5) 이후 - 사월"
+  },
+  {
+    "description": "2000년 1월 1일 - 밀레니엄",
+    "input": {"year": 2000, "month": 1, "day": 1},
+    "expected": {
+      "year_pillar": "기묘"
+    },
+    "note": "입춘 전이므로 전년도(1999) 기묘년"
+  },
+  {
+    "description": "1990년 6월 15일",
+    "input": {"year": 1990, "month": 6, "day": 15},
+    "expected": {
+      "year_pillar": "경오"
+    }
+  },
+  {
+    "description": "1978년 5월 16일 11시 - 오시",
+    "input": {"year": 1978, "month": 5, "day": 16, "hour": 11},
+    "expected": {
+      "year_pillar": "무오",
+      "month_pillar": "정사",
+      "day_pillar": "무인",
+      "hour_pillar_ji": "오"
+    },
+    "note": "11시 = 오시(11:00~12:59)"
+  },
+  {
+    "description": "시간 경계 - 10시 59분 vs 11시 00분",
+    "input": {"year": 1978, "month": 5, "day": 16, "hour": 10},
+    "expected": {
+      "hour_pillar_ji": "사"
+    },
+    "note": "10시 59분까지는 사시(09:00~10:59)"
+  },
+  {
+    "description": "2024년 3월 5일 - 경칩 근처 (경계일)",
+    "input": {"year": 2024, "month": 3, "day": 5},
+    "expected": {
+      "is_boundary": true
+    },
+    "note": "경칩 3/5 11:23 근처"
+  },
+  {
+    "description": "자시(23시) 테스트",
+    "input": {"year": 1978, "month": 5, "day": 16, "hour": 23},
+    "expected": {
+      "hour_pillar_ji": "자"
+    },
+    "note": "23시 = 자시(23:00~00:59)"
+  },
+  {
+    "description": "축시(01시) 테스트",
+    "input": {"year": 1978, "month": 5, "day": 16, "hour": 1},
+    "expected": {
+      "hour_pillar_ji": "축"
+    },
+    "note": "1시 = 축시(01:00~02:59)"
+  }
+]

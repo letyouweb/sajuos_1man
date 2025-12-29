@@ -1,0 +1,110 @@
+{"id": "RC-ELEM-목", "topic": "ELEM", "tags": ["목"], "trigger": ["목"], "interpretation": "목 오행 관련", "priority": 5.0}
+{"id": "RC-ELEM-화", "topic": "ELEM", "tags": ["화"], "trigger": ["화"], "interpretation": "화 오행 관련", "priority": 5.0}
+{"id": "RC-ELEM-토", "topic": "ELEM", "tags": ["토"], "trigger": ["토"], "interpretation": "토 오행 관련", "priority": 5.0}
+{"id": "RC-ELEM-금", "topic": "ELEM", "tags": ["금"], "trigger": ["금"], "interpretation": "금 오행 관련", "priority": 5.0}
+{"id": "RC-ELEM-수", "topic": "ELEM", "tags": ["수"], "trigger": ["수"], "interpretation": "수 오행 관련", "priority": 5.0}
+{"id": "RC-ELEM-COMBO-0", "topic": "ELEM", "tags": ["목", "화", "목화"], "trigger": ["목", "화"], "interpretation": "목과 화 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-1", "topic": "ELEM", "tags": ["화", "토", "화토"], "trigger": ["화", "토"], "interpretation": "화과 토 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-2", "topic": "ELEM", "tags": ["토", "금", "토금"], "trigger": ["토", "금"], "interpretation": "토과 금 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-3", "topic": "ELEM", "tags": ["금", "수", "금수"], "trigger": ["금", "수"], "interpretation": "금과 수 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-4", "topic": "ELEM", "tags": ["수", "목", "수목"], "trigger": ["수", "목"], "interpretation": "수과 목 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-5", "topic": "ELEM", "tags": ["목", "토", "목토"], "trigger": ["목", "토"], "interpretation": "목과 토 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-6", "topic": "ELEM", "tags": ["화", "금", "화금"], "trigger": ["화", "금"], "interpretation": "화과 금 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-7", "topic": "ELEM", "tags": ["토", "수", "토수"], "trigger": ["토", "수"], "interpretation": "토과 수 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-8", "topic": "ELEM", "tags": ["금", "목", "금목"], "trigger": ["금", "목"], "interpretation": "금과 목 조합", "priority": 6.0}
+{"id": "RC-ELEM-COMBO-9", "topic": "ELEM", "tags": ["수", "화", "수화"], "trigger": ["수", "화"], "interpretation": "수과 화 조합", "priority": 6.0}
+{"id": "RC-TEN-비견", "topic": "TEN", "tags": ["비견"], "trigger": ["비견"], "interpretation": "비견 십성", "priority": 5.0}
+{"id": "RC-TEN-겁재", "topic": "TEN", "tags": ["겁재"], "trigger": ["겁재"], "interpretation": "겁재 십성", "priority": 5.0}
+{"id": "RC-TEN-식신", "topic": "TEN", "tags": ["식신"], "trigger": ["식신"], "interpretation": "식신 십성", "priority": 5.0}
+{"id": "RC-TEN-상관", "topic": "TEN", "tags": ["상관"], "trigger": ["상관"], "interpretation": "상관 십성", "priority": 5.0}
+{"id": "RC-TEN-편재", "topic": "TEN", "tags": ["편재"], "trigger": ["편재"], "interpretation": "편재 십성", "priority": 5.0}
+{"id": "RC-TEN-정재", "topic": "TEN", "tags": ["정재"], "trigger": ["정재"], "interpretation": "정재 십성", "priority": 5.0}
+{"id": "RC-TEN-편관", "topic": "TEN", "tags": ["편관"], "trigger": ["편관"], "interpretation": "편관 십성", "priority": 5.0}
+{"id": "RC-TEN-정관", "topic": "TEN", "tags": ["정관"], "trigger": ["정관"], "interpretation": "정관 십성", "priority": 5.0}
+{"id": "RC-TEN-편인", "topic": "TEN", "tags": ["편인"], "trigger": ["편인"], "interpretation": "편인 십성", "priority": 5.0}
+{"id": "RC-TEN-정인", "topic": "TEN", "tags": ["정인"], "trigger": ["정인"], "interpretation": "정인 십성", "priority": 5.0}
+{"id": "RC-TEN-COMBO-0", "topic": "TEN", "tags": ["비견", "겁재"], "trigger": ["비견", "겁재"], "interpretation": "비견과 겁재 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-1", "topic": "TEN", "tags": ["식신", "상관"], "trigger": ["식신", "상관"], "interpretation": "식신과 상관 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-2", "topic": "TEN", "tags": ["편재", "정재"], "trigger": ["편재", "정재"], "interpretation": "편재과 정재 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-3", "topic": "TEN", "tags": ["편관", "정관"], "trigger": ["편관", "정관"], "interpretation": "편관과 정관 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-4", "topic": "TEN", "tags": ["편인", "정인"], "trigger": ["편인", "정인"], "interpretation": "편인과 정인 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-5", "topic": "TEN", "tags": ["식신", "정재"], "trigger": ["식신", "정재"], "interpretation": "식신과 정재 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-6", "topic": "TEN", "tags": ["상관", "편재"], "trigger": ["상관", "편재"], "interpretation": "상관과 편재 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-7", "topic": "TEN", "tags": ["정인", "정관"], "trigger": ["정인", "정관"], "interpretation": "정인과 정관 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-8", "topic": "TEN", "tags": ["편인", "편관"], "trigger": ["편인", "편관"], "interpretation": "편인과 편관 조합", "priority": 6.0}
+{"id": "RC-TEN-COMBO-9", "topic": "TEN", "tags": ["비견", "식신"], "trigger": ["비견", "식신"], "interpretation": "비견과 식신 조합", "priority": 6.0}
+{"id": "RC-STRU-신강", "topic": "STRU", "tags": ["신강"], "trigger": ["신강"], "interpretation": "신강 구조", "priority": 5.0}
+{"id": "RC-STRU-신약", "topic": "STRU", "tags": ["신약"], "trigger": ["신약"], "interpretation": "신약 구조", "priority": 5.0}
+{"id": "RC-STRU-식신생재", "topic": "STRU", "tags": ["식신생재"], "trigger": ["식신생재"], "interpretation": "식신생재 구조", "priority": 5.0}
+{"id": "RC-STRU-재왕신강", "topic": "STRU", "tags": ["재왕신강"], "trigger": ["재왕신강"], "interpretation": "재왕신강 구조", "priority": 5.0}
+{"id": "RC-STRU-재다신약", "topic": "STRU", "tags": ["재다신약"], "trigger": ["재다신약"], "interpretation": "재다신약 구조", "priority": 5.0}
+{"id": "RC-STRU-ADD-비겁중중", "topic": "STRU", "tags": ["비겁중중"], "trigger": ["비겁중중"], "interpretation": "비겁중중 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-인성과다", "topic": "STRU", "tags": ["인성과다"], "trigger": ["인성과다"], "interpretation": "인성과다 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-관인상생", "topic": "STRU", "tags": ["관인상생"], "trigger": ["관인상생"], "interpretation": "관인상생 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-상관생재", "topic": "STRU", "tags": ["상관생재"], "trigger": ["상관생재"], "interpretation": "상관생재 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-식상생재", "topic": "STRU", "tags": ["식상생재"], "trigger": ["식상생재"], "interpretation": "식상생재 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-재생관", "topic": "STRU", "tags": ["재생관"], "trigger": ["재생관"], "interpretation": "재생관 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-인생관", "topic": "STRU", "tags": ["인생관"], "trigger": ["인생관"], "interpretation": "인생관 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-재왕", "topic": "STRU", "tags": ["재왕"], "trigger": ["재왕"], "interpretation": "재왕 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-신약재다", "topic": "STRU", "tags": ["신약재다"], "trigger": ["신약재다"], "interpretation": "신약재다 패턴", "priority": 5.0}
+{"id": "RC-STRU-ADD-신강식상", "topic": "STRU", "tags": ["신강식상"], "trigger": ["신강식상"], "interpretation": "신강식상 패턴", "priority": 5.0}
+{"id": "RC-SURV-생존", "topic": "GENERAL", "tags": ["생존", "생존"], "trigger": ["생존"], "interpretation": "생존 관련", "priority": 5.0}
+{"id": "RC-SURV-안정", "topic": "GENERAL", "tags": ["안정", "생존"], "trigger": ["안정"], "interpretation": "안정 관련", "priority": 5.0}
+{"id": "RC-SURV-자립", "topic": "GENERAL", "tags": ["자립", "생존"], "trigger": ["자립"], "interpretation": "자립 관련", "priority": 5.0}
+{"id": "RC-SURV-협력", "topic": "GENERAL", "tags": ["협력", "생존"], "trigger": ["협력"], "interpretation": "협력 관련", "priority": 5.0}
+{"id": "RC-SURV-균형", "topic": "GENERAL", "tags": ["균형", "생존"], "trigger": ["균형"], "interpretation": "균형 관련", "priority": 5.0}
+{"id": "RC-SURV-조화", "topic": "GENERAL", "tags": ["조화", "생존"], "trigger": ["조화"], "interpretation": "조화 관련", "priority": 5.0}
+{"id": "RC-SURV-성장", "topic": "GENERAL", "tags": ["성장", "생존"], "trigger": ["성장"], "interpretation": "성장 관련", "priority": 5.0}
+{"id": "RC-SURV-방어", "topic": "GENERAL", "tags": ["방어", "생존"], "trigger": ["방어"], "interpretation": "방어 관련", "priority": 5.0}
+{"id": "RC-SURV-적응", "topic": "GENERAL", "tags": ["적응", "생존"], "trigger": ["적응"], "interpretation": "적응 관련", "priority": 5.0}
+{"id": "RC-SURV-회복", "topic": "GENERAL", "tags": ["회복", "생존"], "trigger": ["회복"], "interpretation": "회복 관련", "priority": 5.0}
+{"id": "RC-APPL-갑", "topic": "APPL", "tags": ["갑"], "trigger": ["갑"], "interpretation": "갑 일간", "priority": 5.0}
+{"id": "RC-APPL-을", "topic": "APPL", "tags": ["을"], "trigger": ["을"], "interpretation": "을 일간", "priority": 5.0}
+{"id": "RC-APPL-병", "topic": "APPL", "tags": ["병"], "trigger": ["병"], "interpretation": "병 일간", "priority": 5.0}
+{"id": "RC-APPL-정", "topic": "APPL", "tags": ["정"], "trigger": ["정"], "interpretation": "정 일간", "priority": 5.0}
+{"id": "RC-APPL-무", "topic": "APPL", "tags": ["무"], "trigger": ["무"], "interpretation": "무 일간", "priority": 5.0}
+{"id": "RC-APPL-기", "topic": "APPL", "tags": ["기"], "trigger": ["기"], "interpretation": "기 일간", "priority": 5.0}
+{"id": "RC-APPL-경", "topic": "APPL", "tags": ["경"], "trigger": ["경"], "interpretation": "경 일간", "priority": 5.0}
+{"id": "RC-APPL-신", "topic": "APPL", "tags": ["신"], "trigger": ["신"], "interpretation": "신 일간", "priority": 5.0}
+{"id": "RC-APPL-임", "topic": "APPL", "tags": ["임"], "trigger": ["임"], "interpretation": "임 일간", "priority": 5.0}
+{"id": "RC-APPL-계", "topic": "APPL", "tags": ["계"], "trigger": ["계"], "interpretation": "계 일간", "priority": 5.0}
+{"id": "RC-APPL-갑-화", "topic": "APPL", "tags": ["갑", "화"], "trigger": ["갑", "화"], "interpretation": "갑일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-갑-토", "topic": "APPL", "tags": ["갑", "토"], "trigger": ["갑", "토"], "interpretation": "갑일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-갑-금", "topic": "APPL", "tags": ["갑", "금"], "trigger": ["갑", "금"], "interpretation": "갑일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-갑-수", "topic": "APPL", "tags": ["갑", "수"], "trigger": ["갑", "수"], "interpretation": "갑일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-을-화", "topic": "APPL", "tags": ["을", "화"], "trigger": ["을", "화"], "interpretation": "을일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-을-토", "topic": "APPL", "tags": ["을", "토"], "trigger": ["을", "토"], "interpretation": "을일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-을-금", "topic": "APPL", "tags": ["을", "금"], "trigger": ["을", "금"], "interpretation": "을일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-을-수", "topic": "APPL", "tags": ["을", "수"], "trigger": ["을", "수"], "interpretation": "을일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-병-목", "topic": "APPL", "tags": ["병", "목"], "trigger": ["병", "목"], "interpretation": "병일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-병-토", "topic": "APPL", "tags": ["병", "토"], "trigger": ["병", "토"], "interpretation": "병일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-병-금", "topic": "APPL", "tags": ["병", "금"], "trigger": ["병", "금"], "interpretation": "병일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-병-수", "topic": "APPL", "tags": ["병", "수"], "trigger": ["병", "수"], "interpretation": "병일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-정-목", "topic": "APPL", "tags": ["정", "목"], "trigger": ["정", "목"], "interpretation": "정일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-정-토", "topic": "APPL", "tags": ["정", "토"], "trigger": ["정", "토"], "interpretation": "정일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-정-금", "topic": "APPL", "tags": ["정", "금"], "trigger": ["정", "금"], "interpretation": "정일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-정-수", "topic": "APPL", "tags": ["정", "수"], "trigger": ["정", "수"], "interpretation": "정일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-무-목", "topic": "APPL", "tags": ["무", "목"], "trigger": ["무", "목"], "interpretation": "무일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-무-화", "topic": "APPL", "tags": ["무", "화"], "trigger": ["무", "화"], "interpretation": "무일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-무-금", "topic": "APPL", "tags": ["무", "금"], "trigger": ["무", "금"], "interpretation": "무일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-무-수", "topic": "APPL", "tags": ["무", "수"], "trigger": ["무", "수"], "interpretation": "무일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-기-목", "topic": "APPL", "tags": ["기", "목"], "trigger": ["기", "목"], "interpretation": "기일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-기-화", "topic": "APPL", "tags": ["기", "화"], "trigger": ["기", "화"], "interpretation": "기일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-기-금", "topic": "APPL", "tags": ["기", "금"], "trigger": ["기", "금"], "interpretation": "기일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-기-수", "topic": "APPL", "tags": ["기", "수"], "trigger": ["기", "수"], "interpretation": "기일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-경-목", "topic": "APPL", "tags": ["경", "목"], "trigger": ["경", "목"], "interpretation": "경일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-경-화", "topic": "APPL", "tags": ["경", "화"], "trigger": ["경", "화"], "interpretation": "경일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-경-토", "topic": "APPL", "tags": ["경", "토"], "trigger": ["경", "토"], "interpretation": "경일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-경-수", "topic": "APPL", "tags": ["경", "수"], "trigger": ["경", "수"], "interpretation": "경일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-신-목", "topic": "APPL", "tags": ["신", "목"], "trigger": ["신", "목"], "interpretation": "신일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-신-화", "topic": "APPL", "tags": ["신", "화"], "trigger": ["신", "화"], "interpretation": "신일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-신-토", "topic": "APPL", "tags": ["신", "토"], "trigger": ["신", "토"], "interpretation": "신일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-신-수", "topic": "APPL", "tags": ["신", "수"], "trigger": ["신", "수"], "interpretation": "신일간과 수오행", "priority": 6.0}
+{"id": "RC-APPL-임-목", "topic": "APPL", "tags": ["임", "목"], "trigger": ["임", "목"], "interpretation": "임일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-임-화", "topic": "APPL", "tags": ["임", "화"], "trigger": ["임", "화"], "interpretation": "임일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-임-토", "topic": "APPL", "tags": ["임", "토"], "trigger": ["임", "토"], "interpretation": "임일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-임-금", "topic": "APPL", "tags": ["임", "금"], "trigger": ["임", "금"], "interpretation": "임일간과 금오행", "priority": 6.0}
+{"id": "RC-APPL-계-목", "topic": "APPL", "tags": ["계", "목"], "trigger": ["계", "목"], "interpretation": "계일간과 목오행", "priority": 6.0}
+{"id": "RC-APPL-계-화", "topic": "APPL", "tags": ["계", "화"], "trigger": ["계", "화"], "interpretation": "계일간과 화오행", "priority": 6.0}
+{"id": "RC-APPL-계-토", "topic": "APPL", "tags": ["계", "토"], "trigger": ["계", "토"], "interpretation": "계일간과 토오행", "priority": 6.0}
+{"id": "RC-APPL-계-금", "topic": "APPL", "tags": ["계", "금"], "trigger": ["계", "금"], "interpretation": "계일간과 금오행", "priority": 6.0}
