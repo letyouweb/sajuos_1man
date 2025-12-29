@@ -155,14 +155,15 @@ BUSINESS_OWNER_CORE_TAGS = [
     "인성", "정인", "편인", "학습", "브랜드"
 ]
 
+# 🔥🔥🔥 P0: 섹션 ID 기반 룰카드 가중치 태그 (새 ID 적용)
 SECTION_WEIGHT_TAGS: Dict[str, List[str]] = {
-    "exec": ["전체운", "종합", "핵심", "요약", "일간", "성향"],
-    "money": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
-    "business": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
-    "team": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
-    "health": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식"],
-    "calendar": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
-    "sprint": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"]
+    "business_climate": ["전체운", "종합", "핵심", "요약", "일간", "성향", "기후", "시장", "트렌드"],
+    "cashflow": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실", "선결제", "정기결제"],
+    "market_product": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래", "포지셔닝", "상품"],
+    "team_partnership": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력", "외주", "위임"],
+    "owner_risk": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식", "오프", "자동화"],
+    "sprint_12m": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기", "분기", "리뷰"],
+    "action_90d": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간", "90일", "레버"]
 }
 
 
@@ -181,14 +182,71 @@ class SectionSpec:
     validation_type: str = "standard"
 
 
+# 🔥🔥🔥 P0: 새로운 섹션 ID 매핑 (7개 고정)
+PREMIUM_SECTION_IDS = [
+    "business_climate",   # 1번: 2026 비즈니스 전략 기상도
+    "cashflow",           # 2번: 자본 유동성 및 현금흐름 최적화
+    "market_product",     # 3번: 시장 포지셔닝 및 상품 확장 전략
+    "team_partnership",   # 4번: 조직 확장 및 파트너십 가이드
+    "owner_risk",         # 5번: 오너 리스크 관리 및 번아웃 방어
+    "sprint_12m",         # 6번: 12개월 비즈니스 스프린트 캘린더
+    "action_90d",         # 7번: 향후 90일 매출 극대화 액션플랜
+]
+
 PREMIUM_SECTIONS: Dict[str, SectionSpec] = {
-    "exec": SectionSpec(id="exec", title="2026년, 내 장사 설계도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
-    "money": SectionSpec(id="money", title="현금흐름 & 수익구조", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "business": SectionSpec(id="business", title="사업 전략 & 확장 타이밍", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "team": SectionSpec(id="team", title="협력자 & 파트너 리스크", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
-    "health": SectionSpec(id="health", title="체력 & 번아웃 관리", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
-    "calendar": SectionSpec(id="calendar", title="12개월 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
-    "sprint": SectionSpec(id="sprint", title="90일 스프린트 플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
+    "business_climate": SectionSpec(id="business_climate", title="🌦️ 2026 비즈니스 전략 기상도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
+    "cashflow": SectionSpec(id="cashflow", title="💰 자본 유동성 및 현금흐름 최적화", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "market_product": SectionSpec(id="market_product", title="📍 시장 포지셔닝 및 상품 확장 전략", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "team_partnership": SectionSpec(id="team_partnership", title="🤝 조직 확장 및 파트너십 가이드", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
+    "owner_risk": SectionSpec(id="owner_risk", title="🧯 오너 리스크 관리 및 번아웃 방어", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
+    "sprint_12m": SectionSpec(id="sprint_12m", title="🗓️ 12개월 비즈니스 스프린트 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
+    "action_90d": SectionSpec(id="action_90d", title="🚀 향후 90일 매출 극대화 액션플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
+}
+
+# 🔥🔥🔥 P0: 섹션별 마스터 템플릿 핵심 가이드 (프롬프트 삽입용)
+SECTION_MASTER_GUIDES: Dict[str, Dict[str, str]] = {
+    "business_climate": {
+        "core_problem": "2026년 성패는 '확장'이 아니라 구조 안정화(집중→누적)를 먼저 만들 수 있느냐에 달려 있다.",
+        "key_insight": "의사결정/시도는 빠르지만, 전략이 동시에 늘어나면 실행이 분산되어 누적 성과가 깨지는 구조가 반복된다.",
+        "recommended": "옵션 A(안정화 우선)으로 '핵심 1개'만 남기고 누적 구조를 만든 뒤, 60일 이후 제한적 실험을 한다.",
+        "actions": "D+14: 전략 3→1 축소 | D+30: 자원 70% 집중 | D+60: 고정 매출 40% 확보",
+    },
+    "cashflow": {
+        "core_problem": "가장 큰 재무 리스크는 '매출 부족'이 아니라 현금 유입 시점이 불규칙한 구조다.",
+        "key_insight": "매출이 있어도 입금 지연/비정기 매출 비중이 높으면 고정비 충격에 취약해진다.",
+        "recommended": "선결제/예약금으로 단기 유동성을 만들고, 30일 내 정기결제 1개로 고정 매출을 만든다.",
+        "actions": "D+14: 선결제 30% 도입 | D+30: 정기결제 상품 1개 | D+60: 고정 현금흐름 50%",
+    },
+    "market_product": {
+        "core_problem": "확장의 핵심은 '상품 추가'가 아니라 포지션 명확화다.",
+        "key_insight": "대표 상품/대표 고객/대표 약속이 흐리면 선택 이유가 약해져 전환이 떨어진다.",
+        "recommended": "대표 상품 1개를 먼저 '대표 포지션'으로 고정하고, 60일 후 라인업 확장을 검토한다.",
+        "actions": "D+14: 대표 상품 1개 정의 | D+30: 타겟 문장+오퍼 통일 | D+60: 대표 상품 매출 60%",
+    },
+    "team_partnership": {
+        "core_problem": "확장은 '사람 추가'가 아니라 역할 고정(위임 구조)부터다.",
+        "key_insight": "대표가 모든 결정을 직접하면 시간 제약에서 성장 속도가 급격히 둔화된다.",
+        "recommended": "위임 업무를 먼저 정의하고, 외주 1명을 고정해 대표의 시간을 확보한다.",
+        "actions": "D+14: 위임 업무 3개 정의 | D+30: 외주 1명 고정 | D+60: 대표 비개입 프로세스 1개",
+    },
+    "owner_risk": {
+        "core_problem": "가장 큰 리스크는 실패가 아니라 '지속 불가능한 운영 리듬'이다.",
+        "key_insight": "회복 구간 없이 실행을 밀어붙이면 판단 오류/성과 급락이 발생한다.",
+        "recommended": "오프데이 1일을 먼저 고정하고, 반복업무 1개를 자동화해 대표 개입 시간을 줄인다.",
+        "actions": "D+14: 주간 오프 1일 고정 | D+30: 반복업무 자동화 1개 | D+60: 대표 개입 -20%",
+    },
+    "sprint_12m": {
+        "core_problem": "2026년은 장기 계획보다 '짧은 승리의 누적'이 성과를 만든다.",
+        "key_insight": "분기 단위 피드백이 없으면 연간 목표가 실행으로 연결되지 않는다.",
+        "recommended": "분기 단일 KPI로 운영하며 Q1~Q4를 '구조→수익→확장→정리'로 진행한다.",
+        "actions": "D+14: Q1 KPI 1개 확정 | D+30: 월간 리뷰 루틴 고정 | D+60: Q1 실행체크",
+    },
+    "action_90d": {
+        "core_problem": "다음 90일의 성과가 2026년 전체를 결정한다.",
+        "key_insight": "90일 성과는 '큰 계획'이 아니라 '가장 빠른 매출 레버 1개'에서 나온다.",
+        "recommended": "painPoint에 맞는 레버(리드 or 리텐션) 하나만 선택해 90일간 단일 KPI로 밀어붙인다.",
+        "actions": "D+14: 즉시 매출 액션 1개 | D+30: KPI 1개 개선 | D+90: 월매출 +30%",
+    },
 }
 
 
@@ -581,10 +639,22 @@ def get_section_schema(section_id: str) -> dict:
         return SPRINT_SECTION_SCHEMA
     elif spec.validation_type == "calendar":
         return CALENDAR_SECTION_SCHEMA
-    # 🔥 P0: 장애물/리스크 섹션용 스키마 (team, health, business)
-    elif section_id in ["team", "health", "business"]:
+    # 🔥🔥🔥 P0: 모든 PREMIUM 섹션에 RISK_SECTION_SCHEMA 적용 (마스터 템플릿 구조)
+    # diagnosis: {core_problem, root_cause, why_now}
+    # hypotheses: [{hypothesis, evidence, test}]
+    # strategy_options: [{name, pros, cons, when_to_choose}]
+    # recommended_strategy: {strategy, reason, execution_steps[]}
+    elif section_id in PREMIUM_SECTION_IDS:
         return RISK_SECTION_SCHEMA
     return STANDARD_SECTION_SCHEMA
+
+
+def get_premium_section_spec(section_id: str) -> SectionSpec:
+    """No fallback. If section_id mismatch -> fail fast (prevents 'all sections look same')."""
+    spec = PREMIUM_SECTIONS.get(section_id)
+    if not spec:
+        raise ValueError(f"Unknown section_id={section_id}. Must be one of {list(PREMIUM_SECTIONS.keys())}")
+    return spec
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -711,7 +781,8 @@ def get_section_system_prompt(section_id: str, target_year: int, survey_context:
     """🔥 P0 Pivot: ONE-MAN BUSINESS 공통 프롬프트 (RC-#### 내부 메모 금지)"""
     spec = PREMIUM_SECTIONS.get(section_id)
     if not spec:
-        spec = PREMIUM_SECTIONS["exec"]
+        # 🔥🔥🔥 P0: fallback을 business_climate으로 변경
+        spec = PREMIUM_SECTIONS["business_climate"]
     
     # 🔥🔥🔥 P0 최상위 규칙: 인과관계 분석 원칙 (1순위)
     cause_effect_principle = """
@@ -762,9 +833,9 @@ def get_section_system_prompt(section_id: str, target_year: int, survey_context:
 - 체크리스트: D+1, D+7, D+30 시점별 할 일
 """
     
-    # 🔥🔥🔥 P0 핵심: 리스크/장애물 섹션 전용 규칙
+    # 🔥🔥🔥 P0 핵심: 리스크/장애물 섹션 전용 규칙 (새 ID 적용)
     risk_analysis_rule = ""
-    if section_id in ["team", "health", "business"]:
+    if section_id in ["team_partnership", "owner_risk", "market_product"]:
         risk_analysis_rule = """
 ## ⚠️ 리스크 및 장애물 분석 규칙 (Survey-first)
 
@@ -941,8 +1012,26 @@ def get_section_system_prompt(section_id: str, target_year: int, survey_context:
 **⚠️ 주의:** 사주 용어를 그대로 노출하지 말고, 반드시 비즈니스 언어로 변환하되 "근거: 사주 분석"을 명시하라.
 """
     
+    # 🔥🔥🔥 P0: 섹션별 마스터 가이드 삽입
+    master_guide = SECTION_MASTER_GUIDES.get(section_id, {})
+    section_master_prompt = ""
+    if master_guide:
+        section_master_prompt = f"""
+## 🎯 [{spec.title}] 섹션 마스터 가이드
+
+이 섹션의 핵심 방향:
+- **핵심 문제**: {master_guide.get('core_problem', '')}
+- **통찰**: {master_guide.get('key_insight', '')}
+- **권장 전략**: {master_guide.get('recommended', '')}
+- **액션 타임라인**: {master_guide.get('actions', '')}
+
+⚠️ 위 마스터 가이드를 기반으로 작성하되, engine_headline과 survey_data를 반영하여 구체화하라.
+"""
+    
     # 🔥 P0: ONE-MAN BUSINESS 공통 프롬프트 (추상어 금지, 액션 중심)
     base_prompt = f"""당신은 1인 자영업자를 위한 비즈니스 리포트를 작성하는 전략 컨설턴트입니다.
+
+{section_master_prompt}
 
 {cause_effect_principle}
 
@@ -1416,8 +1505,8 @@ class PremiumReportBuilder:
             f"Top100={global_selection.top100_count}"
         )
         
-        # 섹션별 RuleCard 분배
-        section_ids = list(PREMIUM_SECTIONS.keys())
+        # 🔥🔥🔥 P0: 섹션별 RuleCard 분배 (PREMIUM_SECTION_IDS로 순서 보장)
+        section_ids = PREMIUM_SECTION_IDS
         allocations: Dict[str, SectionRuleCardAllocation] = {}
         used_card_ids = set()
         
