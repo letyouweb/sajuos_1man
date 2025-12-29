@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Debug Router - 엔진 검증용 V2
+Debug Router v3 - P0 Pivot: 설문 기반 엔진 검증
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 개선사항:
-- Calc→Derive→Match 흐름 증명
-- 룰카드 로드 상태 확인
-- 매칭 스코어링 랭킹 상세 표시
-- 사주 4주가 반드시 다른 케이스에서 다르게 나오는지 검증
-- Pillars 검증 개선 (한글 길이 문제 해결, 시주 선택적)
+🔥 P0 핵심 추가:
+- /debug/engine-survey: 같은 사주 + 다른 설문 → 다른 결과 증명
+- survey_data, match_summary, score_trace 반환
+- top_used_rulecard_ids 반환
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
@@ -23,23 +21,270 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 class EngineDebugResponse(BaseModel):
     """엔진 디버그 응답"""
-    # 1. 사주 계산 결과 (Calc)
+    pillars: dict
+    derived: dict
+    match_summary: dict
+    raw_json: dict
+    rulecard_status: dict
+    validation: dict
+
+
+class EngineSurveyDebugResponse(BaseModel):
+    """🔥 P0: 설문 기반 엔진 디버그 응답"""
+    # 입력
+    birth_info: dict
+    survey_data: dict
+    
+    # 사주 계산 결과
     pillars: dict
     
-    # 2. 파생 특징 (Derive)
+    # 파생 특징
     derived: dict
     
-    # 3. 매칭 요약 (Match)
-    match_summary: dict
+    # 🔥 P0 핵심: 설문 기반 매칭 결과
+    match_summary: Dict[str, Any]
     
-    # 4. Raw JSON (상세 추적용)
-    raw_json: dict
+    # 🔥 P0 핵심: 사용된 룰카드 ID 목록
+    top_used_rulecard_ids: List[str]
     
-    # 5. 룰카드 로드 상태
-    rulecard_status: dict
+    # 🔥 P0 핵심: 스코어 트레이스 (점수 breakdown)
+    score_traces: List[dict]
     
-    # 6. 검증 플래그
+    # 검증
     validation: dict
+
+
+@router.get("/engine-survey", response_model=EngineSurveyDebugResponse)
+async def debug_engine_with_survey(
+    request: Request,
+    birth_year: int = Query(..., description="출생 연도", ge=1900, le=2100),
+    birth_month: int = Query(..., description="출생 월", ge=1, le=12),
+    birth_day: int = Query(..., description="출생 일", ge=1, le=31),
+    birth_hour: Optional[int] = Query(None, description="출생 시 (0-23)", ge=0, le=23),
+    target_year: int = Query(2026, description="분석 연도"),
+    # 🔥 P0: 설문 5문항
+    industry: str = Query("", description="업종 (예: IT/SaaS, 커머스, 컨설팅)"),
+    revenue: str = Query("under_1000", description="월매출 범위"),
+    painPoint: str = Query("lead", description="핵심 병목 (lead/conversion/operations/funding/mental/direction)"),
+    goal: str = Query("", description="2026 목표 (예: 월매출 5000만원)"),
+    time: str = Query("30_50", description="주당 투입 시간")
+):
+    """
+    🔥 **P0: 설문 기반 엔진 디버그**
+    
+    **목적**: 같은 사주라도 설문(industry/painPoint/goal)에 따라 
+    선택되는 룰카드가 달라지는 것을 증명
+    
+    **테스트 방법**:
+    ```bash
+    # Case 1: 카페 사업자
+    GET /api/v1/debug/engine-survey?birth_year=1988&birth_month=5&birth_day=15&industry=카페&painPoint=lead&goal=월매출500만원
+    
+    # Case 2: 개발자 (같은 생년월일)
+    GET /api/v1/debug/engine-survey?birth_year=1988&birth_month=5&birth_day=15&industry=개발&painPoint=operations&goal=팀확장
+    
+    # → top_used_rulecard_ids가 달라야 함!
+    ```
+    
+    **반환**:
+    - `survey_data`: 입력된 설문 데이터
+    - `match_summary`: 섹션별 매칭 결과 + 설문 가중치 적용 여부
+    - `top_used_rulecard_ids`: 선택된 룰카드 ID Top 20
+    - `score_traces`: Top 10 카드의 점수 breakdown
+    """
+    try:
+        from app.services.calc_module import calc_module
+        from app.services.derive_module import derive_module
+        from app.services.rulecard_scorer import rulecard_scorer, get_survey_tag_weights
+        
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"🔥 [Debug:Survey] 설문 기반 엔진 테스트")
+        logger.info(f"   생년월일: {birth_year}-{birth_month:02d}-{birth_day:02d} {birth_hour}시")
+        logger.info(f"   설문: industry={industry}, painPoint={painPoint}, goal={goal}")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        # 설문 데이터 구성
+        survey_data = {
+            "industry": industry,
+            "revenue": revenue,
+            "painPoint": painPoint,
+            "goal": goal,
+            "time": time
+        }
+        
+        # ━━━ STEP 1: Calc 모듈 ━━━
+        pillars = await calc_module.calculate_pillars(
+            birth_year=birth_year,
+            birth_month=birth_month,
+            birth_day=birth_day,
+            birth_hour=birth_hour,
+            birth_minute=0
+        )
+        pillars_dict = pillars.to_dict()
+        
+        year_ganji = pillars.year.ganji if pillars.year else ""
+        month_ganji = pillars.month.ganji if pillars.month else ""
+        day_ganji = pillars.day.ganji if pillars.day else ""
+        hour_ganji = pillars.hour.ganji if pillars.hour else ""
+        
+        logger.info(f"✅ 사주: {year_ganji} {month_ganji} {day_ganji} {hour_ganji}")
+        
+        # ━━━ STEP 2: Derive 모듈 ━━━
+        features = derive_module.derive_features(pillars, target_year=target_year)
+        
+        # FeatureTags 생성
+        feature_tags = []
+        for pillar in [year_ganji, month_ganji, day_ganji, hour_ganji]:
+            if pillar and len(pillar) >= 2:
+                feature_tags.append(f"천간:{pillar[0]}")
+                feature_tags.append(f"지지:{pillar[1]}")
+        if features.day_master:
+            feature_tags.append(f"일간:{features.day_master}")
+        
+        # ━━━ STEP 3: 룰카드 로드 (RuleStore에서) ━━━
+        rulestore = getattr(request.app.state, "rulestore", None)
+        all_cards = []
+        
+        if rulestore and hasattr(rulestore, 'cards'):
+            all_cards = [
+                {
+                    "id": getattr(card, 'id', ''),
+                    "topic": getattr(card, 'topic', ''),
+                    "subtopic": getattr(card, 'subtopic', ''),
+                    "tags": getattr(card, 'tags', []),
+                    "priority": getattr(card, 'priority', 0),
+                }
+                for card in rulestore.cards
+            ]
+        
+        logger.info(f"✅ 룰카드 로드: {len(all_cards)}장")
+        
+        if len(all_cards) == 0:
+            # 룰카드 로드 실패 시에도 응답 반환 (빈 결과)
+            return EngineSurveyDebugResponse(
+                birth_info={
+                    "year": birth_year,
+                    "month": birth_month,
+                    "day": birth_day,
+                    "hour": birth_hour,
+                    "target_year": target_year
+                },
+                survey_data=survey_data,
+                pillars=pillars_dict,
+                derived={
+                    "day_master": features.day_master,
+                    "day_master_element": features.day_master_element,
+                    "structure": features.structure,
+                    "feature_tags": feature_tags
+                },
+                match_summary={"error": "룰카드 로드 실패", "total_cards": 0},
+                top_used_rulecard_ids=[],
+                score_traces=[],
+                validation={
+                    "pillars_valid": bool(year_ganji and month_ganji and day_ganji),
+                    "rulecard_loaded": False,
+                    "survey_applied": False,
+                    "all_passed": False
+                }
+            )
+        
+        # ━━━ STEP 4: 🔥 P0 설문 기반 스코어링 ━━━
+        section_results = rulecard_scorer.score_all_sections(
+            all_cards=all_cards,
+            feature_tags=feature_tags,
+            survey_data=survey_data,
+            section_ids=["exec", "money", "business"]  # 주요 3섹션만 테스트
+        )
+        
+        # match_summary 구성
+        match_summary = {
+            "survey_applied": bool(industry or painPoint or goal),
+            "survey_tag_weights": get_survey_tag_weights(survey_data),
+            "sections": {}
+        }
+        
+        all_used_ids = []
+        all_traces = []
+        
+        for section_id, section_cards in section_results.items():
+            match_summary["sections"][section_id] = section_cards.match_summary
+            
+            # Top 카드 ID 수집
+            for card in section_cards.cards[:10]:
+                if card.card_id not in all_used_ids:
+                    all_used_ids.append(card.card_id)
+            
+            # Top 5 카드의 score_trace 수집
+            for card in section_cards.cards[:5]:
+                all_traces.append({
+                    "section": section_id,
+                    "card_id": card.card_id,
+                    "topic": card.topic,
+                    "final_score": round(card.final_score, 2),
+                    "score_trace": card.score_trace.to_dict()
+                })
+        
+        # Top 20 카드 ID
+        top_used_rulecard_ids = all_used_ids[:20]
+        
+        # Top 10 스코어 트레이스
+        score_traces = sorted(all_traces, key=lambda x: x["final_score"], reverse=True)[:10]
+        
+        # ━━━ STEP 5: 검증 ━━━
+        pillars_valid = bool(year_ganji and month_ganji and day_ganji)
+        survey_applied = bool(industry or painPoint or goal)
+        
+        # 설문이 적용되었는지 확인: industry_match, pain_match, goal_match 중 하나라도 > 0
+        survey_score_applied = any(
+            trace.get("score_trace", {}).get("industry_match", 0) > 0 or
+            trace.get("score_trace", {}).get("pain_match", 0) > 0 or
+            trace.get("score_trace", {}).get("goal_match", 0) > 0
+            for trace in score_traces
+        )
+        
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"✅ 설문 기반 엔진 테스트 완료")
+        logger.info(f"   사주 유효: {pillars_valid}")
+        logger.info(f"   설문 적용: {survey_applied} (스코어 반영: {survey_score_applied})")
+        logger.info(f"   선택 카드: {len(top_used_rulecard_ids)}개")
+        logger.info(f"   Top 3 IDs: {top_used_rulecard_ids[:3]}")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        return EngineSurveyDebugResponse(
+            birth_info={
+                "year": birth_year,
+                "month": birth_month,
+                "day": birth_day,
+                "hour": birth_hour,
+                "target_year": target_year
+            },
+            survey_data=survey_data,
+            pillars=pillars_dict,
+            derived={
+                "day_master": features.day_master,
+                "day_master_element": features.day_master_element,
+                "structure": features.structure,
+                "is_strong_self": features.is_strong_self,
+                "feature_tags": feature_tags
+            },
+            match_summary=match_summary,
+            top_used_rulecard_ids=top_used_rulecard_ids,
+            score_traces=score_traces,
+            validation={
+                "pillars_valid": pillars_valid,
+                "rulecard_loaded": len(all_cards) > 0,
+                "survey_applied": survey_applied,
+                "survey_score_reflected": survey_score_applied,
+                "all_passed": pillars_valid and len(all_cards) > 0
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"❌ [Debug:Survey] 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": str(e), "type": type(e).__name__}
+        )
 
 
 @router.get("/engine", response_model=EngineDebugResponse)
@@ -54,25 +299,6 @@ async def debug_engine(
     🔍 **SajuOS V1.0 하이브리드 엔진 디버그 엔드포인트**
     
     **목적**: Calc→Derive→Match 흐름이 실제로 작동하는지 증명
-    
-    **반환**:
-    - `pillars`: 사주 8글자 (년/월/일/시주)
-    - `derived`: 파생 특징 (일간, 오행, 십성, 구조, 타이밍)
-    - `match_summary`: 섹션별 매칭 결과 (카드 수, Top ID, 평균 점수)
-    - `raw_json`: 전체 Raw JSON (matched_rule_ids, match_scores, fired_triggers)
-    - `rulecard_status`: 룰카드 로드 상태 (총 카드 수, 토픽별 분포)
-    - `validation`: 검증 플래그 (pillars_valid, matches_valid, scores_valid)
-    
-    **예제**:
-    ```
-    GET /api/v1/debug/engine?birth_year=1988&birth_month=5&birth_day=15&birth_hour=10&target_year=2026
-    ```
-    
-    **검증 항목**:
-    1. ✅ 입력 2개가 다르면 `pillars`가 반드시 다름
-    2. ✅ 섹션별 매칭 카드 수가 0이 아님
-    3. ✅ raw_json에 used_rulecard_ids + score trace 남음
-    4. ✅ 룰카드 로드 상태 확인 (0장 방지)
     """
     try:
         from app.services.calc_module import calc_module
@@ -85,10 +311,7 @@ async def debug_engine(
         logger.info(f"   분석년도: {target_year}년")
         logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 1: Calc 모듈 - 사주 8글자 계산
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        logger.info(f"[Step 1] Calc 모듈 실행...")
+        # STEP 1: Calc
         pillars = await calc_module.calculate_pillars(
             birth_year=birth_year,
             birth_month=birth_month,
@@ -105,81 +328,43 @@ async def debug_engine(
         
         logger.info(f"✅ Calc 완료: {year_ganji} {month_ganji} {day_ganji} {hour_ganji}")
         
-        # 🔥 Pillars 검증 개선 (한글 길이 문제 해결, 시주 선택적)
         pillars_valid = all([
             pillars.year is not None,
             pillars.month is not None,
             pillars.day is not None,
-            year_ganji and year_ganji != "?",  # 비어있지 않고 "?"가 아님
+            year_ganji and year_ganji != "?",
             month_ganji and month_ganji != "?",
             day_ganji and day_ganji != "?"
         ])
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 2: Derive 모듈 - 특징 파생
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        logger.info(f"[Step 2] Derive 모듈 실행...")
+        # STEP 2: Derive
         features = derive_module.derive_features(pillars, target_year=target_year)
         features_dict = features.to_dict()
         
-        logger.info(f"✅ Derive 완료:")
-        logger.info(f"   일간: {features.day_master} ({features.day_master_element})")
-        logger.info(f"   구조: {features.structure}")
-        logger.info(f"   강약: {'신강' if features.is_strong_self else '신약'}")
-        logger.info(f"   강한 오행: {features.strong_elements}")
-        logger.info(f"   주도 십성: {features.dominant_ten_god}")
+        logger.info(f"✅ Derive 완료: 일간={features.day_master}")
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 3: Match 모듈 - 룰카드 매칭
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        logger.info(f"[Step 3] Match 모듈 실행...")
-        
-        # 3-1. 룰카드 로드 상태 확인
+        # STEP 3: Match
         if not match_module.loaded or not match_module.store:
-            logger.info(f"   룰카드 미로드 상태 → 로드 시작")
-            
-            # 룰카드 경로 찾기
             backend_path = Path(__file__).parent.parent.parent
             rulecards_path = backend_path / "data" / "sajuos_master_db.jsonl"
             
             if not rulecards_path.exists():
                 rulecards_path = backend_path / "data" / "rulecards.jsonl"
-            
             if not rulecards_path.exists():
-                # Fallback: temp_rulecards.jsonl
                 rulecards_path = backend_path / "temp_rulecards.jsonl"
             
-            if not rulecards_path.exists():
-                raise FileNotFoundError(
-                    f"❌ 룰카드 파일 없음: {rulecards_path}\n"
-                    f"   data/sajuos_master_db.jsonl, data/rulecards.jsonl 또는 temp_rulecards.jsonl이 필요합니다."
-                )
-            
-            logger.info(f"   룰카드 파일: {rulecards_path}")
-            match_module.load_rulecards(str(rulecards_path))
+            if rulecards_path.exists():
+                match_module.load_rulecards(str(rulecards_path))
         
-        # 3-2. 룰카드 로드 상태 체크
         total_cards = len(match_module.store.cards) if match_module.store else 0
         by_topic = match_module.store.by_topic if match_module.store else {}
         
-        logger.info(f"✅ 룰카드 로드 완료: {total_cards}장")
-        for topic, cards in by_topic.items():
-            logger.info(f"   {topic}: {len(cards)}장")
-        
-        # 3-3. 룰카드 0장 검증
         if total_cards == 0:
-            raise RuntimeError(
-                f"❌ 룰카드 로드 실패: 0장\n"
-                f"   rulecards.jsonl 파일을 확인하세요."
-            )
+            raise RuntimeError("룰카드 로드 실패: 0장")
         
-        # 3-4. 매칭 실행
         matches = match_module.match_all_sections(features)
-        logger.info(f"✅ Match 완료: {len(matches)}개 섹션")
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 4: Match Summary 생성 (스코어링 랭킹 표시)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Match Summary
         match_summary = {}
         total_matched_cards = 0
         
@@ -187,12 +372,11 @@ async def debug_engine(
             card_count = len(section_match.cards)
             total_matched_cards += card_count
             
-            # Top 5 카드 ID와 점수
             top_cards_with_scores = [
                 {
                     "card_id": card.card_id,
                     "score": round(card.score, 2),
-                    "score_details": card.score_details  # 점수 상세
+                    "score_details": card.score_details
                 }
                 for card in section_match.cards[:5]
             ]
@@ -202,32 +386,16 @@ async def debug_engine(
                 "top_cards": top_cards_with_scores,
                 "avg_score": round(section_match.avg_score, 2)
             }
-            
-            logger.info(f"   {section_id}: {card_count}장, 평균점수: {section_match.avg_score:.2f}")
         
-        # 매칭 검증
-        matches_valid = all([
-            len(section_match.cards) > 0
-            for section_match in matches.values()
-        ])
+        matches_valid = all([len(sm.cards) > 0 for sm in matches.values()])
+        scores_valid = all([sm.avg_score > 0 for sm in matches.values()])
         
-        scores_valid = all([
-            section_match.avg_score > 0
-            for section_match in matches.values()
-        ])
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 5: Raw JSON 생성
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Raw JSON
         raw_json = match_module.generate_raw_json(features, matches)
-        
-        # Raw JSON 간소화 (응답 크기 감소)
         raw_json_compact = {
             "matched_rule_ids": raw_json["matched_rule_ids"],
             "match_scores": raw_json["match_scores"],
-            "fired_triggers": {
-                k: v[:3] for k, v in raw_json["fired_triggers"].items()  # 각 카드당 Top 3 트리거만
-            },
+            "fired_triggers": {k: v[:3] for k, v in raw_json["fired_triggers"].items()},
             "total_matched": len(raw_json["matched_rule_ids"]),
             "features_summary": {
                 "day_master": features.day_master,
@@ -238,9 +406,6 @@ async def debug_engine(
             }
         }
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STEP 6: 검증 플래그
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         validation = {
             "pillars_valid": pillars_valid,
             "pillars_year": year_ganji or "N/A",
@@ -251,24 +416,10 @@ async def debug_engine(
             "scores_valid": scores_valid,
             "total_matched_cards": total_matched_cards,
             "rulecards_loaded": total_cards,
-            "all_checks_passed": all([
-                pillars_valid,
-                matches_valid,
-                scores_valid,
-                total_cards > 0,
-                total_matched_cards > 0
-            ])
+            "all_checks_passed": all([pillars_valid, matches_valid, scores_valid, total_cards > 0, total_matched_cards > 0])
         }
         
-        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info(f"✅ 엔진 테스트 완료:")
-        logger.info(f"   사주 유효: {pillars_valid}")
-        logger.info(f"   매칭 유효: {matches_valid}")
-        logger.info(f"   점수 유효: {scores_valid}")
-        logger.info(f"   룰카드 로드: {total_cards}장")
-        logger.info(f"   총 매칭 카드: {total_matched_cards}장")
-        logger.info(f"   전체 검증: {'✅ PASS' if validation['all_checks_passed'] else '❌ FAIL'}")
-        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"✅ 엔진 테스트 완료: {validation['all_checks_passed']}")
         
         return EngineDebugResponse(
             pillars=pillars_dict,
@@ -282,7 +433,7 @@ async def debug_engine(
                 "element_count": features.element_count,
                 "dominant_ten_god": features.dominant_ten_god,
                 "ten_gods_count": features.ten_gods_count,
-                "ten_gods": features.ten_gods[:10],  # Top 10만
+                "ten_gods": features.ten_gods[:10],
                 "structure": features.structure,
                 "structure_desc": features.structure_desc,
                 "timing_year": features.timing_year,
@@ -303,26 +454,15 @@ async def debug_engine(
     
     except Exception as e:
         logger.error(f"❌ [Debug] 엔진 테스트 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": str(e),
-                "type": type(e).__name__,
-                "message": "엔진 디버그 실행 중 오류가 발생했습니다."
-            }
-        )
+        raise HTTPException(status_code=500, detail={"error": str(e), "type": type(e).__name__})
 
 
 @router.get("/health")
 async def health_check():
-    """
-    🏥 헬스 체크 엔드포인트
-    
-    룰카드 로드 상태 및 모듈 상태 확인
-    """
+    """🏥 헬스 체크"""
     from app.services.match_module import match_module
     
-    status = {
+    return {
         "status": "ok",
         "rulecard_loaded": match_module.loaded,
         "total_cards": len(match_module.store.cards) if match_module.store else 0,
@@ -332,5 +472,10 @@ async def health_check():
             "match": "loaded" if match_module.loaded else "not_loaded"
         }
     }
-    
-    return status
+
+
+@router.get("/survey-form-spec")
+async def get_survey_form_spec():
+    """🔥 P0: 프론트엔드용 설문 폼 스펙 반환"""
+    from app.services.survey_intake import SURVEY_FORM_SPEC
+    return SURVEY_FORM_SPEC
