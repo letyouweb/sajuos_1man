@@ -588,6 +588,53 @@ def allocate_rulecards_to_section(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def _pick_top1_card(top100_cards: List[Dict[str, Any]], alloc: SectionRuleCardAllocation) -> Optional[Dict[str, Any]]:
+    """🔥🔥🔥 P0: alloc.allocated_card_ids[0]을 진짜 Top1으로 찾아서 반환
+    - alloc 순서가 섹션별 스코어 기준이므로, 이 순서를 존중해야 함
+    - top100_cards 순서로 다시 필터링하면 Top1이 뒤틀릴 수 있음
+    """
+    if not alloc.allocated_card_ids:
+        return None
+    top1_id = alloc.allocated_card_ids[0]
+    for c in top100_cards:
+        cid = c.get("id", c.get("_id", ""))
+        if cid == top1_id:
+            return c
+    return None
+
+
+def _extract_headline_from_card(card: Optional[Dict[str, Any]]) -> str:
+    """단일 카드에서 engine_headline 추출 (interpretation 우선)"""
+    if not card:
+        return ""
+    
+    def _first_sentence(text: str, max_len: int = 160) -> str:
+        t = (text or "").strip()
+        if not t:
+            return ""
+        t = re.split(r"[\r\n]+", t)[0].strip()
+        if len(t) <= max_len:
+            return t
+        cut = t[:max_len]
+        m = re.search(r"(.+?[\.\!\?…。])", cut)
+        if m:
+            return m.group(1).strip()
+        return cut.strip()
+    
+    raw = (
+        card.get("interpretation")
+        or card.get("trigger")
+        or card.get("mechanism")
+        or card.get("action")
+        or ""
+    )
+    try:
+        cleaned = sanitize_for_business(str(raw))
+    except Exception:
+        cleaned = str(raw)
+    return _first_sentence(cleaned)
+
+
 def _extract_engine_headline_from_rulecards(rulecards: List[Dict[str, Any]]) -> str:
     """Top1 룰카드의 interpretation(없으면 trigger/mechanism)를 헤드라인으로 뽑아냄.
     - 가능한 한 '한 문장'으로 유지
@@ -948,9 +995,12 @@ class PremiumReportBuilder:
         max_regeneration: int = 2,
         job_id: Optional[str] = None,
         survey_context: str = "",  # 🔥 v7: 설문 컨텍스트
-        engine_headline: str = ""  # ✅ Top1 룰카드 결론 고정
+        engine_headline: str = "",  # ✅ Top1 룰카드 결론 고정
+        existing_contents: List[str] = None  # 🔥🔥🔥 P0: 중복 방지용 이전 섹션 body_markdown
     ) -> Dict[str, Any]:
         """섹션 생성 + 가드레일 검증 + 품질 게이트 + 자동 재생성"""
+        if existing_contents is None:
+            existing_contents = []
         
         async with self._semaphore:
             start_time = time.time()
@@ -1007,8 +1057,14 @@ class PremiumReportBuilder:
                 quality_report = quality_gate.check_section(
                     section_id=section_id,
                     content=body_text,
-                    existing_contents=[]  # TODO: 이전 섹션 내용 전달
+                    existing_contents=existing_contents  # 🔥🔥🔥 P0: 중복 방지 - 이전 섹션 body_markdown 전달
                 )
+                
+                # 🔥🔥🔥 P0: engine_headline이 비어있으면 재생성 트리거
+                if not engine_headline and allocation.allocated_count > 0:
+                    is_valid = False
+                    errors.append("ENGINE_HEADLINE_EMPTY")
+                    logger.warning(f"[Section:{section_id}] ⚠️ engine_headline 비어있음 - 재생성 필요")
                 
                 if not quality_report.passed:
                     is_valid = False
@@ -1109,12 +1165,25 @@ class PremiumReportBuilder:
         # 섹션 생성 (가드레일 + 품질 게이트 포함) - 🔥 순차 처리로 변경 (Progress 지원)
         results = []
         section_headlines = {}  # 🔥 P0: 섹션별 engine_headline 저장
+        existing_contents = []  # 🔥🔥🔥 P0: 중복 방지용 이전 섹션 body_markdown
+        
         for sid in section_ids:
             try:
-                # 🔥🔥🔥 P0: 섹션별 Top1 카드에서 engine_headline 추출
+                # 🔥🔥🔥 P0: alloc 순서 기준 Top1 카드 선택 (top100_cards 순서가 아님!)
                 alloc = allocations[sid]
-                section_cards = [c for c in global_selection.top100_cards if c.get("id", c.get("_id", "")) in alloc.allocated_card_ids]
-                section_engine_headline = _extract_engine_headline_from_rulecards(section_cards)
+                top1_card = _pick_top1_card(global_selection.top100_cards, alloc)
+                section_engine_headline = _extract_headline_from_card(top1_card)
+                top1_id = alloc.allocated_card_ids[0] if alloc.allocated_card_ids else ""
+                
+                # 🔥🔥🔥 P0: engine_headline 로깅 및 빈 경우 경고
+                headline_len = len(section_engine_headline)
+                logger.info(
+                    f"[Engine Headline] section={sid} | top_card_id={top1_id} | "
+                    f"headline_len={headline_len} | allocated_count={alloc.allocated_count}"
+                )
+                if headline_len == 0 and alloc.allocated_count > 0:
+                    logger.warning(f"[Engine Headline] ⚠️ EMPTY headline for section={sid} with {alloc.allocated_count} cards!")
+                
                 section_headlines[sid] = section_engine_headline
                 
                 result = await self._generate_section_with_guardrail(
@@ -1125,10 +1194,16 @@ class PremiumReportBuilder:
                     user_question=user_question,
                     max_regeneration=2,
                     job_id=job_id,
-                    survey_context=survey_context,  # 🔥 v7: 설문 컨텍스트 전달
-                    engine_headline=section_engine_headline  # ✅ 섹션별 Top1 룰카드 결론 고정
+                    survey_context=survey_context,
+                    engine_headline=section_engine_headline,
+                    existing_contents=existing_contents  # 🔥🔥🔥 P0: 중복 방지용
                 )
                 results.append(result)
+                
+                # 🔥🔥🔥 P0: 다음 섹션 중복 검사를 위해 body_markdown 저장
+                body = result.get("content", {}).get("body_markdown", "")
+                if body:
+                    existing_contents.append(body)
                 
                 # 🔥 Progress: 섹션 완료
                 if job_id:
@@ -1309,10 +1384,20 @@ class PremiumReportBuilder:
             except Exception as e:
                 logger.warning(f"[SingleSection] 설문 데이터 변환 실패: {e}")
         
-        engine_headline = _extract_engine_headline_from_rulecards(rulecards)
+        # 🔥🔥🔥 P0: alloc 순서 기준 Top1 카드 선택
         global_selection = select_global_top100(rulecards, feature_tags, top_limit=100)
         spec = PREMIUM_SECTIONS[section_id]
         allocation = allocate_rulecards_to_section(global_selection.top100_cards, section_id, spec.max_cards, set())
+        
+        top1_card = _pick_top1_card(global_selection.top100_cards, allocation)
+        engine_headline = _extract_headline_from_card(top1_card)
+        top1_id = allocation.allocated_card_ids[0] if allocation.allocated_card_ids else ""
+        
+        # 🔥🔥🔥 P0: engine_headline 로깅
+        logger.info(
+            f"[Engine Headline] section={section_id} | top_card_id={top1_id} | "
+            f"headline_len={len(engine_headline)} | allocated_count={allocation.allocated_count}"
+        )
         
         try:
             result = await self._generate_section_with_guardrail(
@@ -1323,7 +1408,8 @@ class PremiumReportBuilder:
                 user_question=user_question,
                 max_regeneration=2,
                 survey_context=survey_context,  # 🔥 v7: 설문 컨텍스트 전달
-                engine_headline=engine_headline  # ✅ Top1 룰카드 결론 고정
+                engine_headline=engine_headline,  # ✅ Top1 룰카드 결론 고정
+                existing_contents=[]  # 단일 섹션 재생성이므로 빈 리스트
             )
             
             content = result["content"]
