@@ -155,14 +155,15 @@ BUSINESS_OWNER_CORE_TAGS = [
     "인성", "정인", "편인", "학습", "브랜드"
 ]
 
+# 🔥🔥🔥 P0: 신규 섹션 ID로 업데이트
 SECTION_WEIGHT_TAGS: Dict[str, List[str]] = {
-    "exec": ["전체운", "종합", "핵심", "요약", "일간", "성향"],
-    "money": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
-    "business": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
-    "team": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
-    "health": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식"],
-    "calendar": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
-    "sprint": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"]
+    "business_climate": ["전체운", "종합", "핵심", "요약", "일간", "성향"],
+    "cashflow": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
+    "market_product": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
+    "team_partnership": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
+    "owner_risk": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식"],
+    "sprint_12m": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
+    "action_90d": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"]
 }
 
 
@@ -181,14 +182,15 @@ class SectionSpec:
     validation_type: str = "standard"
 
 
+# 🔥🔥🔥 P0: 신규 섹션 ID로 업데이트 (프론트엔드/Supabase와 동일)
 PREMIUM_SECTIONS: Dict[str, SectionSpec] = {
-    "exec": SectionSpec(id="exec", title="2026년, 내 장사 설계도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
-    "money": SectionSpec(id="money", title="현금흐름 & 수익구조", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "business": SectionSpec(id="business", title="사업 전략 & 확장 타이밍", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
-    "team": SectionSpec(id="team", title="협력자 & 파트너 리스크", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
-    "health": SectionSpec(id="health", title="체력 & 번아웃 관리", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
-    "calendar": SectionSpec(id="calendar", title="12개월 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
-    "sprint": SectionSpec(id="sprint", title="90일 스프린트 플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
+    "business_climate": SectionSpec(id="business_climate", title="🌦️ 2026 비즈니스 전략 기상도", pages=2, max_cards=15, min_cards=8, min_chars=1500, validation_type="standard"),
+    "cashflow": SectionSpec(id="cashflow", title="💰 자본 유동성 및 현금흐름 최적화", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "market_product": SectionSpec(id="market_product", title="📍 시장 포지셔닝 및 상품 확장 전략", pages=5, max_cards=18, min_cards=10, min_chars=2500, validation_type="standard"),
+    "team_partnership": SectionSpec(id="team_partnership", title="🤝 조직 확장 및 파트너십 가이드", pages=4, max_cards=15, min_cards=8, min_chars=2000, validation_type="standard"),
+    "owner_risk": SectionSpec(id="owner_risk", title="🧯 오너 리스크 관리 및 번아웃 방어", pages=3, max_cards=12, min_cards=6, min_chars=1500, validation_type="standard"),
+    "sprint_12m": SectionSpec(id="sprint_12m", title="🗓️ 12개월 비즈니스 스프린트 캘린더", pages=6, max_cards=12, min_cards=8, min_chars=2500, validation_type="calendar"),
+    "action_90d": SectionSpec(id="action_90d", title="🚀 향후 90일 매출 극대화 액션플랜", pages=5, max_cards=10, min_cards=6, min_chars=2000, validation_type="sprint")
 }
 
 
