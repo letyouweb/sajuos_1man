@@ -1,14 +1,12 @@
-"""
-한국천문연구원(KASI) API 연동 모듈
-- 음양력 정보 API
-- 절기 정보 API
-- 간지(세차/월건/일진) 데이터 확보
+﻿"""
+한국천문연구원(KASI) API 연동 모듈 v2 (KASI-only)
+- ephem 제거, KASI 결과만 사용
+- calendar_cache: Supabase 캐싱 연동
+- 실패 시: 캐시 폴백 -> 캐시도 없으면 에러
 """
 import httpx
 from typing import Optional, Dict, Any
-from datetime import date
 import logging
-from functools import lru_cache
 
 from app.config import get_settings
 
@@ -16,51 +14,49 @@ logger = logging.getLogger(__name__)
 
 
 class KasiApiClient:
-    """
-    한국천문연구원 공공데이터 API 클라이언트
+    """KASI API 클라이언트 (KASI-only + calendar_cache)"""
     
-    사용 API:
-    1. 음양력 정보 조회 (간지 포함)
-       - URL: http://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService/getLunCalInfo
-    
-    2. 특일정보 - 24절기 조회
-       - URL: http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/get24DivisionsInfo
-    """
-    
-    BASE_URL_LUNAR = "http://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService"
-    BASE_URL_SPECIAL = "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService"
+    BASE_URL = "http://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService"
     
     def __init__(self):
         self.settings = get_settings()
         self.api_key = self.settings.kasi_api_key
+        self._supabase = None
     
-    async def get_lunar_info(
-        self,
-        year: int,
-        month: int,
-        day: int
-    ) -> Optional[Dict[str, Any]]:
+    def _get_supabase(self):
+        """Lazy-init Supabase"""
+        if self._supabase is None:
+            from app.services.supabase_service import SupabaseService
+            self._supabase = SupabaseService()
+        return self._supabase
+    
+    async def get_lunar_info_with_cache(self, year: int, month: int, day: int) -> Dict[str, Any]:
         """
-        양력 날짜로 음양력 정보 조회 (간지 포함)
+        양력 날짜로 음양력 정보 조회 (캐시 우선)
+        1) 캐시 조회 -> hit면 반환
+        2) 캐시 miss -> KASI 호출 -> 성공 시 캐시 저장
+        3) KASI 실패 -> 캐시 폴백
+        4) 캐시도 없으면 에러
+        """
+        # 1) 캐시 먼저 조회
+        try:
+            supabase = self._get_supabase()
+            cached = supabase.get_calendar_cache(year, month, day)
+            if cached and cached.get("payload"):
+                logger.info(f"[KASI] cache hit: {year}-{month:02d}-{day:02d}")
+                payload = cached["payload"]
+                payload["source"] = "cache"
+                return payload
+        except Exception as e:
+            logger.warning(f"[KASI] cache read error: {e}")
         
-        Returns:
-            {
-                "solYear": "2025",
-                "solMonth": "01",
-                "solDay": "01",
-                "lunYear": "2024",
-                "lunMonth": "12",
-                "lunDay": "02",
-                "lunSecha": "갑진",      # 년 간지
-                "lunWolgeon": "병자",    # 월 간지  
-                "lunIljin": "임오"       # 일 간지
-            }
-        """
+        # 2) 캐시 miss -> KASI API 호출
+        logger.info(f"[KASI] cache miss, calling API: {year}-{month:02d}-{day:02d}")
+        
         if not self.api_key:
-            logger.warning("KASI API key not configured, using fallback")
-            return None
+            raise RuntimeError("KASI API key not configured")
         
-        url = f"{self.BASE_URL_LUNAR}/getLunCalInfo"
+        url = f"{self.BASE_URL}/getLunCalInfo"
         params = {
             "serviceKey": self.api_key,
             "solYear": str(year),
@@ -70,137 +66,64 @@ class KasiApiClient:
         }
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
-                
                 data = response.json()
                 
-                # 응답 파싱
-                items = (
-                    data.get("response", {})
-                    .get("body", {})
-                    .get("items", {})
-                    .get("item", {})
-                )
+                items = data.get("response", {}).get("body", {}).get("items", {}).get("item", {})
                 
                 if items:
-                    return {
-                        "year_ganji": items.get("lunSecha", ""),      # 세차 (년 간지)
-                        "month_ganji": items.get("lunWolgeon", ""),   # 월건 (월 간지)
-                        "day_ganji": items.get("lunIljin", ""),       # 일진 (일 간지)
+                    payload = {
+                        "year_ganji": items.get("lunSecha", ""),
+                        "month_ganji": items.get("lunWolgeon", ""),
+                        "day_ganji": items.get("lunIljin", ""),
                         "lunar_year": items.get("lunYear", ""),
                         "lunar_month": items.get("lunMonth", ""),
                         "lunar_day": items.get("lunDay", ""),
                         "is_leap_month": items.get("lunLeapmonth", "") == "윤"
                     }
-                
-                return None
-                
-        except httpx.HTTPError as e:
-            logger.error(f"KASI API HTTP error: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"KASI API error: {e}")
-            return None
-    
-    async def get_solar_terms(
-        self,
-        year: int,
-        month: int
-    ) -> Optional[Dict[str, Any]]:
-        """
-        해당 월의 24절기 정보 조회
-        
-        Returns:
-            {
-                "term_name": "입춘",
-                "term_date": "2025-02-03",
-                "term_time": "23:10"
-            }
-        """
-        if not self.api_key:
-            return None
-        
-        url = f"{self.BASE_URL_SPECIAL}/get24DivisionsInfo"
-        params = {
-            "serviceKey": self.api_key,
-            "solYear": str(year),
-            "solMonth": str(month).zfill(2),
-            "_type": "json"
-        }
-        
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                items = (
-                    data.get("response", {})
-                    .get("body", {})
-                    .get("items", {})
-                    .get("item", [])
-                )
-                
-                # 여러 절기가 있을 수 있음 (입절, 중기)
-                if items:
-                    if isinstance(items, dict):
-                        items = [items]
                     
-                    result = []
-                    for item in items:
-                        result.append({
-                            "name": item.get("dateName", ""),
-                            "date": item.get("locdate", ""),
-                            "is_holiday": item.get("isHoliday", "N") == "Y"
-                        })
-                    return result
+                    # 3) 성공 시 캐시 저장
+                    try:
+                        supabase = self._get_supabase()
+                        supabase.upsert_calendar_cache(year, month, day, payload, source="kasi")
+                        logger.info(f"[KASI] cache upsert success: {year}-{month:02d}-{day:02d}")
+                    except Exception as e:
+                        logger.warning(f"[KASI] cache upsert fail: {e}")
+                    
+                    payload["source"] = "kasi"
+                    return payload
                 
-                return None
+                raise RuntimeError(f"KASI returned empty for {year}-{month:02d}-{day:02d}")
                 
         except Exception as e:
-            logger.error(f"KASI Solar Terms API error: {e}")
-            return None
+            logger.error(f"[KASI] API error: {e}")
+            
+            # 4) KASI 실패 -> 캐시 폴백 재시도
+            try:
+                supabase = self._get_supabase()
+                cached = supabase.get_calendar_cache(year, month, day)
+                if cached and cached.get("payload"):
+                    logger.info(f"[KASI] fallback to cache after API failure")
+                    payload = cached["payload"]
+                    payload["source"] = "cache_fallback"
+                    return payload
+            except Exception:
+                pass
+            
+            # 5) 캐시도 없으면 에러
+            raise RuntimeError(f"calendar unavailable for {year}-{month:02d}-{day:02d}")
     
-    async def get_ganji_data(
-        self,
-        year: int,
-        month: int,
-        day: int
-    ) -> Dict[str, str]:
-        """
-        간지 데이터 통합 조회 (캐시 친화적)
-        
-        Returns:
-            {
-                "year_ganji": "갑진",
-                "month_ganji": "병자",
-                "day_ganji": "임오",
-                "source": "kasi_api" | "fallback"
-            }
-        """
-        # KASI API 먼저 시도
-        lunar_info = await self.get_lunar_info(year, month, day)
-        
-        if lunar_info and lunar_info.get("year_ganji"):
-            return {
-                "year_ganji": lunar_info["year_ganji"],
-                "month_ganji": lunar_info["month_ganji"],
-                "day_ganji": lunar_info["day_ganji"],
-                "source": "kasi_api"
-            }
-        
-        # Fallback: 내부 계산
-        logger.info(f"Using fallback calculation for {year}-{month}-{day}")
+    async def get_ganji_data(self, year: int, month: int, day: int) -> Dict[str, str]:
+        """간지 데이터 통합 조회 (KASI-only + 캐시)"""
+        lunar_info = await self.get_lunar_info_with_cache(year, month, day)
         return {
-            "year_ganji": None,  # saju_engine이 계산
-            "month_ganji": None,
-            "day_ganji": None,
-            "source": "fallback"
+            "year_ganji": lunar_info.get("year_ganji", ""),
+            "month_ganji": lunar_info.get("month_ganji", ""),
+            "day_ganji": lunar_info.get("day_ganji", ""),
+            "source": lunar_info.get("source", "kasi")
         }
 
 
-# 싱글톤 인스턴스
 kasi_client = KasiApiClient()
