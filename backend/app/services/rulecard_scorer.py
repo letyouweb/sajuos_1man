@@ -233,3 +233,63 @@ class RuleCardScorer:
 def create_scorer(cards: List[Any]) -> RuleCardScorer:
     """스코어러 생성 헬퍼"""
     return RuleCardScorer(cards)
+
+
+# 🔥 P0: 호환성을 위한 심볼 추가
+@dataclass
+class SectionCards:
+    """섹션별 카드 할당 결과"""
+    section_id: str
+    cards: List[Any] = field(default_factory=list)
+    score_traces: Dict[str, Any] = field(default_factory=dict)
+
+
+def get_survey_tag_weights(survey_data: Optional[Dict] = None) -> Dict[str, float]:
+    """설문 기반 태그 가중치 반환"""
+    if not survey_data:
+        return {}
+    
+    weights = {}
+    
+    industry = survey_data.get("industry", "").lower()
+    if industry in INDUSTRY_WEIGHTS:
+        for tag in INDUSTRY_WEIGHTS[industry]:
+            weights[tag] = weights.get(tag, 0) + 1.5
+    
+    pain = survey_data.get("painPoint", "").lower()
+    if pain in PAINPOINT_WEIGHTS:
+        for tag in PAINPOINT_WEIGHTS[pain]:
+            weights[tag] = weights.get(tag, 0) + 2.0
+    
+    goal = survey_data.get("businessGoal", "").lower()
+    if goal in GOAL_WEIGHTS:
+        for tag in GOAL_WEIGHTS[goal]:
+            weights[tag] = weights.get(tag, 0) + 1.0
+    
+    return weights
+
+
+# 🔥 P0: 싱글톤 인스턴스 (호환성)
+class RuleCardScorerSingleton:
+    """싱글톤 스코어러 (cards 나중에 주입)"""
+    def __init__(self):
+        self.cards = []
+        self._scorer = None
+    
+    def set_cards(self, cards: List[Any]):
+        self.cards = cards
+        self._scorer = RuleCardScorer(cards)
+    
+    def score_cards(self, features: Dict[str, Any], survey_data: Optional[Dict] = None, section_id: str = "general") -> List[ScoredCard]:
+        if self._scorer is None:
+            self._scorer = RuleCardScorer(self.cards)
+        return self._scorer.score_cards(features, survey_data, section_id)
+    
+    def get_top_k(self, features: Dict[str, Any], survey_data: Optional[Dict] = None, section_id: str = "general", k: int = 10):
+        if self._scorer is None:
+            self._scorer = RuleCardScorer(self.cards)
+        return self._scorer.get_top_k(features, survey_data, section_id, k)
+
+
+# 🔥 P0: 싱글톤 export
+rulecard_scorer = RuleCardScorerSingleton()

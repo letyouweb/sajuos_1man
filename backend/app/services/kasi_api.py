@@ -147,7 +147,6 @@ class KasiApiClient:
             raise RuntimeError(f"calendar unavailable for {ymd}")
 
     async def get_ganji_data(self, year: int, month: int, day: int) -> Dict[str, str]:
-(self, year: int, month: int, day: int) -> Dict[str, str]:
         """간지 데이터 통합 조회 (KASI-only + 캐시)"""
         lunar_info = await self.get_lunar_info_with_cache(year, month, day)
         return {
