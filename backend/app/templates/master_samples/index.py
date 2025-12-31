@@ -254,10 +254,10 @@ def load_master_samples(version: str = "v1") -> Dict[str, Any]:
     if base_dir.exists():
         for json_file in base_dir.glob("*.json"):
             try:
-                # 🔥 B안: bytes로 BOM strip (철벽)
+                # 🔥 P0 철벽: bytes BOM strip + utf-8-sig 둘 다
                 raw = json_file.read_bytes()
-                raw = raw.lstrip(b"\xef\xbb\xbf")
-                data = json.loads(raw.decode("utf-8", errors="replace"))
+                raw = raw.lstrip(b"\xef\xbb\xbf")  # BOM strip
+                data = json.loads(raw.decode("utf-8-sig", errors="strict"))
                 
                 section_id = data.get("section_id", json_file.stem)
                 samples[section_id] = data
