@@ -49,23 +49,23 @@ class SectionSpec:
 
 
 PREMIUM_SECTIONS = {
-    "biz_weather": SectionSpec("biz_weather", "2026 비즈니스 전략 기상도", 2, 15, 8, 1500),
-    "cashflow": SectionSpec("cashflow", "자본 유동성 및 현금흐름 최적화", 5, 18, 10, 2500),
-    "positioning": SectionSpec("positioning", "시장 포지셔닝 및 상품 확장 전략", 5, 18, 10, 2500),
-    "partnership": SectionSpec("partnership", "조직 확장 및 파트너십 가이드", 4, 15, 8, 2000),
-    "risks": SectionSpec("risks", "주요 장애물 및 리스크 (2026)", 3, 12, 6, 1500),
-    "calendar_12m": SectionSpec("calendar_12m", "12개월 비즈니스 스프린트 캘린더", 6, 12, 8, 2500, "calendar"),
-    "action_90d": SectionSpec("action_90d", "향후 90일 매출 극대화 액션플랜", 5, 10, 6, 2000, "sprint"),
+    "exec": SectionSpec("exec", "2026 비즈니스 전략 기상도", 2, 15, 8, 1500),
+    "money": SectionSpec("money", "자본 유동성 및 현금흐름 최적화", 5, 18, 10, 2500),
+    "business": SectionSpec("business", "시장 포지셔닝 및 상품 확장 전략", 5, 18, 10, 2500),
+    "team": SectionSpec("team", "조직 확장 및 파트너십 가이드", 4, 15, 8, 2000),
+    "health": SectionSpec("health", "오너 리스크 관리 및 번아웃 방어", 3, 12, 6, 1500),
+    "calendar": SectionSpec("calendar", "12개월 비즈니스 스프린트 캘린더", 6, 12, 8, 2500, "calendar"),
+    "sprint": SectionSpec("sprint", "향후 90일 매출 극대화 액션플랜", 5, 10, 6, 2000, "sprint"),
 }
 
 SECTION_WEIGHT_TAGS = {
-    "biz_weather": ["전체운", "종합", "핵심", "요약", "일간", "성향"],
-    "cashflow": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
-    "positioning": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
-    "partnership": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
-    "risks": ["관성", "충", "형", "파", "리스크", "장애", "손해", "위험"],
-    "calendar_12m": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
-    "action_90d": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"],
+    "exec": ["전체운", "종합", "핵심", "요약", "일간", "성향", "대운"],
+    "money": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
+    "business": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
+    "team": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
+    "health": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식", "관성"],
+    "calendar": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
+    "sprint": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"],
 }
 
 

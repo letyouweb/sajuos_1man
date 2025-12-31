@@ -1,4 +1,4 @@
-"""
+﻿"""
 Supabase Service v14 - P0 Fix: content/markdown/body_markdown 컬럼 반드시 저장
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 P0 핵심:
@@ -52,7 +52,7 @@ SECTION_SPECS = [
     {"id": "action_90d", "title": "🚀 향후 90일 매출 극대화 액션플랜", "order": 7},
 ]
 
-SECTION_ORDER = ["business_climate", "cashflow", "market_product", "team_partnership", "owner_risk", "sprint_12m", "action_90d"]
+SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
 
 
 class SupabaseService:

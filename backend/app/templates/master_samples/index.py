@@ -70,19 +70,13 @@ def get_master_body_markdown(section_id: str, version: str = "v1") -> str:
 
 # 섹션 ID 매핑 (한글 제목 → section_id)
 SECTION_ID_MAP = {
-    "2026 비즈니스 전략 기상도": "biz_weather",
-    "자본 유동성 및 현금흐름 최적화": "cashflow",
-    "시장 포지셔닝 및 상품 확장 전략": "positioning",
-    "조직 확장 및 파트너십 가이드": "partnership",
-    "⚠️ 주요 장애물 및 리스크 (2026)": "risks",
-    "12개월 비즈니스 스프린트 캘린더": "calendar_12m",
-    "향후 90일 매출 극대화 액션플랜": "action_90d",
-    # 기존 호환성
-    "business_climate": "biz_weather",
-    "market_product": "positioning",
-    "team_partnership": "partnership",
-    "owner_risk": "risks",
-    "sprint_12m": "calendar_12m",
+    "2026 비즈니스 전략 기상도": "exec",
+    "자본 유동성 및 현금흐름 최적화": "money",
+    "시장 포지셔닝 및 상품 확장 전략": "business",
+    "조직 확장 및 파트너십 가이드": "team",
+    "오너 리스크 관리 및 번아웃 방어": "health",
+    "12개월 비즈니스 스프린트 캘린더": "calendar",
+    "향후 90일 매출 극대화 액션플랜": "sprint",
 }
 
 
