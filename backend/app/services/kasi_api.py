@@ -32,90 +32,122 @@ class KasiApiClient:
     
     async def get_lunar_info_with_cache(self, year: int, month: int, day: int) -> Dict[str, Any]:
         """
-        양력 날짜로 음양력 정보 조회 (캐시 우선)
-        1) 캐시 조회 -> hit면 반환
-        2) 캐시 miss -> KASI 호출 -> 성공 시 캐시 저장
-        3) KASI 실패 -> 캐시 폴백
-        4) 캐시도 없으면 에러
+        양력 날짜로 음양력 정보 조회 (캐시 우선) + 원본/정규화 동시 저장
+
+        흐름:
+        1) 캐시 조회 (sol_year, sol_month, sol_day)
+           - hit: payload(정규화) 반환 + raw를 "raw" 키로 함께 제공
+        2) miss: KASI(getLunCalInfo) 호출
+           - 성공: payload_norm + payload_raw 동시 upsert 후 반환
+        3) KASI 실패:
+           - 캐시 있으면 캐시로 폴백
+           - 캐시도 없으면 "calendar unavailable" 에러
         """
+        ymd = f"{year}-{month:02d}-{day:02d}"
+
         # 1) 캐시 먼저 조회
         try:
             supabase = self._get_supabase()
             cached = supabase.get_calendar_cache(year, month, day)
             if cached and cached.get("payload"):
-                logger.info(f"[KASI] cache hit: {year}-{month:02d}-{day:02d}")
-                payload = cached["payload"]
+                logger.info(f"[KASI] cache hit: {ymd}")
+                norm = cached.get("payload") or {}
+                raw = cached.get("payload_raw")
+                # 반환은 기존 하위호환 유지: 정규화 필드를 최상단에 두고 raw만 추가
+                payload = dict(norm)
+                if raw is not None:
+                    payload["raw"] = raw
                 payload["source"] = "cache"
                 return payload
         except Exception as e:
             logger.warning(f"[KASI] cache read error: {e}")
-        
+
         # 2) 캐시 miss -> KASI API 호출
-        logger.info(f"[KASI] cache miss, calling API: {year}-{month:02d}-{day:02d}")
-        
+        logger.info(f"[KASI] cache miss, calling API: {ymd}")
+
         if not self.api_key:
             raise RuntimeError("KASI API key not configured")
-        
+
         url = f"{self.BASE_URL}/getLunCalInfo"
         params = {
             "serviceKey": self.api_key,
             "solYear": str(year),
             "solMonth": str(month).zfill(2),
             "solDay": str(day).zfill(2),
-            "_type": "json"
+            "_type": "json",
         }
-        
+
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
-                data = response.json()
-                
-                items = data.get("response", {}).get("body", {}).get("items", {}).get("item", {})
-                
-                if items:
-                    payload = {
-                        "year_ganji": items.get("lunSecha", ""),
-                        "month_ganji": items.get("lunWolgeon", ""),
-                        "day_ganji": items.get("lunIljin", ""),
-                        "lunar_year": items.get("lunYear", ""),
-                        "lunar_month": items.get("lunMonth", ""),
-                        "lunar_day": items.get("lunDay", ""),
-                        "is_leap_month": items.get("lunLeapmonth", "") == "윤"
-                    }
-                    
-                    # 3) 성공 시 캐시 저장
-                    try:
-                        supabase = self._get_supabase()
-                        supabase.upsert_calendar_cache(year, month, day, payload, source="kasi")
-                        logger.info(f"[KASI] cache upsert success: {year}-{month:02d}-{day:02d}")
-                    except Exception as e:
-                        logger.warning(f"[KASI] cache upsert fail: {e}")
-                    
-                    payload["source"] = "kasi"
-                    return payload
-                
-                raise RuntimeError(f"KASI returned empty for {year}-{month:02d}-{day:02d}")
-                
+
+                payload_raw = response.json()  # ✅ 원본 JSON 통째 저장
+                item = (
+                    payload_raw.get("response", {})
+                    .get("body", {})
+                    .get("items", {})
+                    .get("item", {})
+                )
+
+                if not item:
+                    raise RuntimeError(f"KASI returned empty for {ymd}")
+
+                # ✅ 정규화(서비스에서 바로 쓰는 형태)
+                payload_norm = {
+                    "year_ganji": item.get("lunSecha", ""),
+                    "month_ganji": item.get("lunWolgeon", ""),
+                    "day_ganji": item.get("lunIljin", ""),
+                    "lunar_year": item.get("lunYear", ""),
+                    "lunar_month": item.get("lunMonth", ""),
+                    "lunar_day": item.get("lunDay", ""),
+                    "is_leap_month": item.get("lunLeapmonth", "") == "윤",
+                }
+
+                # 3) 성공이면 캐시 저장 (실패해도 본 흐름은 계속)
+                try:
+                    supabase = self._get_supabase()
+                    supabase.upsert_calendar_cache(
+                        year, month, day,
+                        payload_norm=payload_norm,
+                        payload_raw=payload_raw,
+                        source="kasi",
+                    )
+                    logger.info(f"[KASI] cache upsert success: {ymd}")
+                except Exception as e:
+                    logger.warning(f"[KASI] cache upsert fail: {e}")
+
+                # 반환: 하위호환(정규화 필드 최상단) + raw 포함
+                out = dict(payload_norm)
+                out["raw"] = payload_raw
+                out["source"] = "kasi"
+                return out
+
         except Exception as e:
-            logger.error(f"[KASI] API error: {e}")
-            
-            # 4) KASI 실패 -> 캐시 폴백 재시도
+            # 로그 폭주 방지: error 대신 warning 권장
+            logger.warning(f"[KASI] API error: {e}")
+
+            # 4) KASI 실패 -> 캐시 폴백
             try:
                 supabase = self._get_supabase()
                 cached = supabase.get_calendar_cache(year, month, day)
                 if cached and cached.get("payload"):
-                    logger.info(f"[KASI] fallback to cache after API failure")
-                    payload = cached["payload"]
+                    logger.info("[KASI] fallback to cache after API failure")
+                    norm = cached.get("payload") or {}
+                    raw = cached.get("payload_raw")
+                    payload = dict(norm)
+                    if raw is not None:
+                        payload["raw"] = raw
                     payload["source"] = "cache_fallback"
                     return payload
             except Exception:
                 pass
-            
+
             # 5) 캐시도 없으면 에러
-            raise RuntimeError(f"calendar unavailable for {year}-{month:02d}-{day:02d}")
-    
+            raise RuntimeError(f"calendar unavailable for {ymd}")
+
     async def get_ganji_data(self, year: int, month: int, day: int) -> Dict[str, str]:
+(self, year: int, month: int, day: int) -> Dict[str, str]:
         """간지 데이터 통합 조회 (KASI-only + 캐시)"""
         lunar_info = await self.get_lunar_info_with_cache(year, month, day)
         return {

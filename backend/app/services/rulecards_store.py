@@ -1,12 +1,18 @@
-from __future__ import annotations
-from dataclasses import dataclass
-from typing import Dict, List, Set, Optional
-import json, os, math, logging
+﻿from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Dict, List, Set, Optional, Any
+import json, os, math, logging, sqlite3
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class RuleCard:
+    """
+    RuleCard 데이터클래스
+    - content dict 기반 접근을 위한 property 포함
+    """
     id: str
     topic: str
     tags: List[str]
@@ -16,27 +22,47 @@ class RuleCard:
     interpretation: Optional[str] = None
     action: Optional[str] = None
     cautions: Optional[List[str]] = None
+    content: Dict[str, Any] = field(default_factory=dict)
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    # property로 content dict 접근 지원 (getattr 대응)
+    @property
+    def content_mechanism(self) -> str:
+        return self.mechanism or (self.content or {}).get("mechanism", "") or ""
+
+    @property
+    def content_interpretation(self) -> str:
+        return self.interpretation or (self.content or {}).get("interpretation", "") or ""
+
+    @property
+    def content_action(self) -> str:
+        return self.action or (self.content or {}).get("action", "") or ""
+
+    @property
+    def content_cautions(self) -> List[str]:
+        if self.cautions:
+            return self.cautions if isinstance(self.cautions, list) else [self.cautions]
+        v = (self.content or {}).get("cautions", [])
+        return v if isinstance(v, list) else ([v] if v else [])
+
+    @property
+    def subtopic(self) -> str:
+        return (self.meta or {}).get("subtopic", "") or ""
+
 
 TAG_NORMALIZE = {
-    "정제": "정재",
-    "편제": "편재",
-    "겁제": "겁재",
-    "식신생제": "식신생재",
-    "상관생제": "상관생재",
-    "식상생제": "식상생재",
-    "간목": "인목",
-    "신지금": "신금",
+    "정제": "정재", "편제": "편재", "겁제": "겁재",
+    "식신생제": "식신생재", "상관생제": "상관생재", "식상생제": "식상생재",
+    "간목": "인목", "신지금": "신금",
 }
+
 
 def canon_tag(t: str) -> str:
     s = " ".join(str(t).strip().split())
     return TAG_NORMALIZE.get(s, s)
 
+
 def explode_tag_tokens(t: str) -> List[str]:
-    """
-    카드 태그를 토큰화해서 매칭 안정성을 높임.
-    - "현금 흐름" 같은 태그가 있으면 ["현금 흐름","현금","흐름"] 모두로 취급
-    """
     c = canon_tag(t)
     parts = [canon_tag(p) for p in c.split(" ") if len(p) >= 2]
     out, seen = [], set()
@@ -46,32 +72,120 @@ def explode_tag_tokens(t: str) -> List[str]:
             out.append(x)
     return out
 
+
 def safe_priority(p) -> float:
     try:
         v = float(p)
     except Exception:
         return 0.0
-    # 0~10 or 0~100 모두 대응
     return min(v, 10.0) if v <= 10 else min(v, 100.0) / 10.0
 
+
 class RuleCardStore:
-    """
-    JSONL 룰카드 로드 + 토픽 인덱스 + IDF(희소 태그 가중치) 생성
-    """
-    def __init__(self, path: str):
+    """JSONL/SQLite 룰카드 로드 + 토픽 인덱스 + IDF"""
+
+    def __init__(self, path: str = None, cards: List[RuleCard] = None):
         self.path = path
-        self.cards: List[RuleCard] = []
+        self.cards: List[RuleCard] = cards or []
         self.by_topic: Dict[str, List[RuleCard]] = {}
         self.idf: Dict[str, float] = {}
+        self.source: str = "unknown"
+        
+        if cards:
+            self.by_topic = self._build_topic_index(cards)
+            self.idf = self._build_idf(cards)
+
+    @classmethod
+    def load_from_sqlite_master(cls, db_path: str) -> "RuleCardStore":
+        """sajuos_master.db에서 룰카드 로드"""
+        p = Path(db_path)
+        if not p.exists():
+            raise FileNotFoundError(f"master db not found: {db_path}")
+
+        conn = sqlite3.connect(str(p))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT id, topic, priority, trigger_json, tags_json, 
+                   interpretation, mechanism, action, cautions_json
+            FROM rule_cards
+        """).fetchall()
+        conn.close()
+
+        cards = []
+        for r in rows:
+            # trigger_json 파싱
+            trigger_obj = {}
+            trigger_list = []
+            try:
+                trigger_obj = json.loads(r["trigger_json"] or "{}")
+                if isinstance(trigger_obj, dict):
+                    kw = trigger_obj.get("keywords", [])
+                    if isinstance(kw, list):
+                        trigger_list = [str(x).strip() for x in kw if str(x).strip()]
+            except:
+                pass
+
+            # tags_json 파싱
+            tags = []
+            try:
+                tags = json.loads(r["tags_json"] or "[]")
+                if not isinstance(tags, list):
+                    tags = []
+            except:
+                tags = []
+
+            # tags 비어있으면 keywords로 채움
+            if not tags and trigger_list:
+                tags = trigger_list[:]
+            if not tags:
+                tags = [r["topic"] or "GENERAL"]
+
+            # cautions_json 파싱
+            cautions = []
+            try:
+                cautions = json.loads(r["cautions_json"] or "[]")
+                if not isinstance(cautions, list):
+                    cautions = [cautions] if cautions else []
+            except:
+                cautions = []
+
+            # content dict 구성
+            content = {
+                "interpretation": r["interpretation"] or "",
+                "mechanism": r["mechanism"] or "",
+                "action": r["action"] or "",
+                "cautions": cautions,
+            }
+
+            cards.append(RuleCard(
+                id=r["id"],
+                topic=r["topic"] or "GENERAL",
+                priority=safe_priority(r["priority"]),
+                trigger=json.dumps(trigger_obj) if trigger_obj else None,
+                tags=[canon_tag(x) for x in tags if x],
+                mechanism=r["mechanism"] or "",
+                interpretation=r["interpretation"] or "",
+                action=r["action"] or "",
+                cautions=cautions,
+                content=content,
+                meta={"trigger": trigger_obj},
+            ))
+
+        store = cls(path=db_path, cards=cards)
+        store.source = "master_db"
+        logger.info(f"[RuleCardStore] ✅ master_db 로드: {len(cards)}장")
+        print(f"✅ RuleCards loaded from master db: {len(cards)}")
+        return store
 
     def load(self) -> None:
+        """JSONL에서 룰카드 로드"""
         p = self.path
         if not os.path.exists(p):
             raise FileNotFoundError(f"Rulecards JSONL not found: {p}")
 
         cards: List[RuleCard] = []
-        skipped_count = 0
-        
+        skipped = 0
+
         with open(p, "r", encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
@@ -79,53 +193,44 @@ class RuleCardStore:
                     continue
                 try:
                     obj = json.loads(line)
-                except Exception as e:
-                    logger.warning(f"[RuleCardStore] JSON 파싱 실패 (line {line_num}): {e}")
-                    skipped_count += 1
+                except Exception:
+                    skipped += 1
                     continue
 
-                # 🔥 필수 필드 체크 완화: id와 topic만 필수
                 if not obj.get("id") or not obj.get("topic"):
-                    logger.warning(f"[RuleCardStore] 필수 필드 누락 (line {line_num}): id 또는 topic")
-                    skipped_count += 1
+                    skipped += 1
                     continue
-                
-                # 🔥 tags가 없으면 trigger에서 자동 생성
+
                 tags = obj.get("tags", [])
                 if not tags:
-                    # trigger에서 추출 시도
                     trigger = obj.get("trigger")
                     if trigger:
                         if isinstance(trigger, list):
                             tags = [str(t) for t in trigger if t]
                         elif isinstance(trigger, str):
                             try:
-                                # JSON 파싱 시도
                                 parsed = json.loads(trigger)
                                 if isinstance(parsed, list):
                                     tags = [str(t) for t in parsed if t]
                                 elif isinstance(parsed, dict):
-                                    # dict의 values 추출
                                     for v in parsed.values():
                                         if isinstance(v, list):
                                             tags.extend([str(t) for t in v if t])
-                                        elif isinstance(v, str) and v:
-                                            tags.append(v)
                             except:
-                                # JSON 아니면 문자열 그대로
                                 tags = [trigger]
-                    
-                    # interpretation에서도 키워드 추출 시도
-                    if not tags:
-                        interp = obj.get("interpretation", "")
-                        if interp and len(interp) > 0:
-                            # 간단한 키워드 추출 (topic을 태그로)
-                            tags = [obj.get("topic")]
-                
-                # 여전히 tags가 없으면 topic을 기본 태그로
                 if not tags:
                     tags = [obj.get("topic")]
-                    logger.debug(f"[RuleCardStore] tags 자동 생성 (line {line_num}): {tags}")
+
+                cautions = obj.get("cautions", [])
+                if not isinstance(cautions, list):
+                    cautions = [cautions] if cautions else []
+
+                content = {
+                    "interpretation": obj.get("interpretation", ""),
+                    "mechanism": obj.get("mechanism", ""),
+                    "action": obj.get("action", ""),
+                    "cautions": cautions,
+                }
 
                 cards.append(RuleCard(
                     id=obj["id"],
@@ -136,16 +241,17 @@ class RuleCardStore:
                     mechanism=obj.get("mechanism"),
                     interpretation=obj.get("interpretation"),
                     action=obj.get("action"),
-                    cautions=obj.get("cautions"),
+                    cautions=cautions,
+                    content=content,
+                    meta={},
                 ))
 
         self.cards = cards
         self.by_topic = self._build_topic_index(cards)
         self.idf = self._build_idf(cards)
-        
-        # 🔥 로드 결과 로그
-        logger.info(f"[RuleCardStore] ✅ 로드 완료: {len(cards)}장 (스킵: {skipped_count}장)")
-        logger.info(f"[RuleCardStore] 토픽별: {', '.join([f'{k}:{len(v)}' for k, v in self.by_topic.items()])}")
+        self.source = "jsonl"
+        logger.info(f"[RuleCardStore] ✅ JSONL 로드: {len(cards)}장 (스킵: {skipped})")
+        print(f"✅ RuleCards loaded from jsonl: {len(cards)}")
 
     def _build_topic_index(self, cards: List[RuleCard]) -> Dict[str, List[RuleCard]]:
         m: Dict[str, List[RuleCard]] = {}

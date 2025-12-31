@@ -515,18 +515,19 @@ class ReportWorker:
         return tags
     
     def _card_to_dict(self, card) -> Dict:
-        """RuleCard를 dict로 변환"""
+        """RuleCard를 dict로 변환 (content dict fallback 포함)"""
+        content = getattr(card, 'content', {}) or {}
         return {
             "id": getattr(card, 'id', ''),
             "topic": getattr(card, 'topic', ''),
-            "subtopic": getattr(card, 'subtopic', ''),
+            "subtopic": getattr(card, 'subtopic', '') or (getattr(card, 'meta', {}) or {}).get('subtopic', ''),
             "tags": getattr(card, 'tags', []),
             "priority": getattr(card, 'priority', 0),
             "trigger": getattr(card, 'trigger', ''),
-            "mechanism": getattr(card, 'mechanism', ''),
-            "interpretation": getattr(card, 'interpretation', ''),
-            "action": getattr(card, 'action', ''),
-            "cautions": getattr(card, 'cautions', []),
+            "mechanism": getattr(card, 'mechanism', '') or content.get('mechanism', ''),
+            "interpretation": getattr(card, 'interpretation', '') or content.get('interpretation', ''),
+            "action": getattr(card, 'action', '') or content.get('action', ''),
+            "cautions": getattr(card, 'cautions', []) or content.get('cautions', []),
         }
     
     def _build_markdown(self, result_json: Dict, saju_data: Dict) -> str:
