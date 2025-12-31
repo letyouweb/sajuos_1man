@@ -1,6 +1,6 @@
-﻿"""
-Master Samples Loader - P0
-마스터 샘플 JSON 파일 로드
+"""
+Master Samples Loader - P0 HOTFIX
+마스터 샘플 JSON 파일 로드 (BOM 처리)
 """
 import os
 import json
@@ -10,47 +10,49 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# 캐시
 _MASTER_SAMPLES_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def load_master_samples(version: str = "v1") -> Dict[str, Any]:
     """
-    마스터 샘플 로드
-    
-    Args:
-        version: 버전 (v1, v2, ...)
-    
-    Returns:
-        {section_id: {title, body_markdown, ...}}
+    마스터 샘플 로드 (utf-8-sig로 BOM 처리)
     """
     cache_key = version
     if cache_key in _MASTER_SAMPLES_CACHE:
         return _MASTER_SAMPLES_CACHE[cache_key]
     
-    # 경로 결정
     base_dir = Path(__file__).parent / version
     
     if not base_dir.exists():
-        logger.warning(f"[MasterSamples] 디렉토리 없음: {base_dir}")
+        logger.error(f"[MasterSamples] ❌ 디렉토리 없음: {base_dir}")
         return {}
     
     samples = {}
+    failed_files = []
     
     for json_file in base_dir.glob("*.json"):
+        # 🔥 P0 HOTFIX: utf-8-sig로 BOM 처리
+        encoding_used = "utf-8-sig"
         try:
-            with open(json_file, "r", encoding="utf-8") as f:
+            with open(json_file, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
             
             section_id = data.get("section_id", json_file.stem)
             samples[section_id] = data
-            logger.debug(f"[MasterSamples] 로드: {section_id}")
+            logger.debug(f"[MasterSamples] ✅ 로드: {section_id} | encoding={encoding_used}")
         except Exception as e:
-            logger.warning(f"[MasterSamples] 파일 로드 실패: {json_file} | {e}")
+            # 🔥 로드 실패 시 encoding 정보 로그
+            failed_files.append(json_file.name)
+            logger.error(f"[MasterSamples] ❌ 파일 로드 실패: {json_file.name} | encoding={encoding_used} | error={e}")
     
-    logger.info(f"[MasterSamples] {version} 로드 완료: {len(samples)}개 섹션")
+    # 🔥 로드 완료 로그 (섹션 키 목록 포함)
+    section_keys = list(samples.keys())
+    logger.info(f"[MasterSamples] {version} 로드 완료: {len(samples)}개 섹션 | keys={section_keys}")
+    
+    if failed_files:
+        logger.warning(f"[MasterSamples] ⚠️ 실패한 파일: {failed_files}")
+    
     _MASTER_SAMPLES_CACHE[cache_key] = samples
-    
     return samples
 
 
