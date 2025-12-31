@@ -10,6 +10,7 @@ SajuOS V1.0 하이브리드 엔진 - Main App
 import os
 import logging
 from pathlib import Path
+import subprocess
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,24 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 🔥 P0: GIT_SHA 추출 (배포 증명용)
+def get_git_sha() -> str:
+    """Git commit SHA 추출"""
+    # 1) 환경변수 우선
+    sha = os.environ.get("GIT_SHA") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or os.environ.get("RENDER_GIT_COMMIT")
+    if sha:
+        return sha[:8]
+    # 2) git 명령어 시도
+    try:
+        result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return result.stdout.strip()[:8]
+    except:
+        pass
+    return "unknown"
+
+GIT_SHA = get_git_sha()
 
 app = FastAPI(title="SajuOS V1.0", version="1.0.0")
 
@@ -30,7 +49,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "git_sha": GIT_SHA}
 
 @app.get("/")
 async def root():
@@ -73,6 +92,7 @@ async def startup():
     logger.info(f"")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"🚀 SajuOS V1.0 하이브리드 엔진 가동 시작")
+    logger.info(f"🔥 GIT_SHA: {GIT_SHA}")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     app.state.rulestore = None
@@ -159,7 +179,7 @@ async def ready():
         "openai": bool(os.getenv("OPENAI_API_KEY")),
         "supabase": bool(os.getenv("SUPABASE_URL")),
     }
-    return {"status": "ready" if checks["rulecards"] and checks["openai"] else "partial", "checks": checks}
+    return {"status": "ready" if checks["rulecards"] and checks["openai"] else "partial", "checks": checks, "git_sha": GIT_SHA}
 
 
 @app.exception_handler(Exception)

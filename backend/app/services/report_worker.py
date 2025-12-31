@@ -329,9 +329,9 @@ class ReportWorker:
             return selected_cards, match_summary
             
         except Exception as e:
-            logger.error(f"[Worker] RuleCardScorer 호출 실패: {e}")
-            # Fallback: 단순 선택
-            return self._fallback_select_rulecards(all_cards, feature_tags)
+            logger.exception(f"[Worker] RuleCardScorer 호출 실패 - job FAILED로 처리: {e}")
+            # 🔥 P0: Fallback 금지, 즉시 raise
+            raise RuntimeError(f"RuleCardScorer 호출 실패: {e}") from e
     
     def _fallback_select_rulecards(self, all_cards: List[Dict], feature_tags: List[str]) -> tuple[List[Dict], Dict]:
         """Fallback: RuleCardScorer 실패 시 단순 선택"""

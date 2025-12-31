@@ -390,8 +390,14 @@ async def view_report(job_id: str, token: str = Query(..., description="Access t
     # 3) 섹션 정규화
     sections_normalized = [normalize_section(s) for s in sections_raw]
     
-    # 4) 🔥 P0: completed인데 섹션 비면 경고
-    if job.get("status") == "completed":
+    # 4) 🔥 P0: completed인데 섹션 0개면 failed로 처리
+    job_status = job.get("status")
+    if job_status == "completed" and len(sections_normalized) == 0:
+        logger.error(f"[Reports] ❌ COMPLETED인데 섹션 0개: {job_id} - failed로 처리")
+        job_status = "failed"
+        job["status"] = "failed"
+        job["error"] = "리포트 생성 실패: 섹션이 생성되지 않았습니다."
+    elif job_status == "completed":
         empty_sections = [s["section_id"] for s in sections_normalized if len(s.get("markdown", "")) < 100]
         if empty_sections:
             logger.error(f"[Reports] ⚠️ COMPLETED인데 빈 섹션: {job_id} | {empty_sections}")
@@ -584,12 +590,20 @@ async def get_report_result(job_id: str, token: Optional[str] = Query(None)):
     # 섹션 정규화
     sections_normalized = [normalize_section(s) for s in sections_raw]
     
-    # 🔥 P0: completed인데 섹션 비면 경고 (500은 너무 과함)
+    # 🔥 P0: completed인데 섹션 0개면 failed로 처리
+    if len(sections_normalized) == 0:
+        logger.error(f"[Reports] ❌ 섹션 0개: {job_id} - failed로 처리")
+        return {
+            "completed": False,
+            "status": "failed",
+            "error": "리포트 생성 실패: 섹션이 생성되지 않았습니다.",
+            "progress": job.get("progress", 0)
+        }
+    
     empty_sections = [s["section_id"] for s in sections_normalized if len(s.get("markdown", "")) < 100]
     if empty_sections:
         logger.error(f"[Reports] ⚠️ COMPLETED인데 빈 섹션: {job_id} | {empty_sections}")
         logger.error(f"[Reports] 섹션 개수: {len(sections_normalized)} | Job: {job_id}")
-        # 경고만 남기고 진행
     
     # full_markdown 생성
     input_json = job.get("input_json") or {}
