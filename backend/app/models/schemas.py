@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pydantic 스키마 정의
 API 요청/응답 모델 - 재설계 버전
 """
@@ -77,6 +77,7 @@ class DaeunInfo(BaseModel):
     start_age: int = Field(..., description="대운 시작 나이")
     direction: Literal["forward", "backward"] = Field(..., description="대운 방향 (순행/역행)")
     current_daeun: Optional[str] = Field(None, description="현재 대운")
+    daeun_list: List[str] = Field(default_factory=list, description="대운 간지 리스트 (10개)")
 
 
 class QualityInfo(BaseModel):
@@ -214,3 +215,4 @@ class ErrorResponse(BaseModel):
     error_code: str
     message: str
     detail: Optional[str] = None
+
