@@ -1,4 +1,4 @@
-"""
+﻿"""
 Master Samples Loader - P0 HOTFIX v2
 마스터 샘플 JSON 파일 로드 (BOM 처리 + 0개 폴백)
 """
@@ -254,10 +254,19 @@ def load_master_samples(version: str = "v1") -> Dict[str, Any]:
     if base_dir.exists():
         for json_file in base_dir.glob("*.json"):
             try:
-                # 🔥 P0 철벽: bytes BOM strip + utf-8-sig 둘 다
+                # 🔥 P0 철벽: bytes BOM + unicode BOM 둘 다 제거
                 raw = json_file.read_bytes()
-                raw = raw.lstrip(b"\xef\xbb\xbf")  # BOM strip
-                data = json.loads(raw.decode("utf-8-sig", errors="strict"))
+                
+                # 1) bytes BOM 제거 (정확히 prefix 제거)
+                if raw.startswith(b"\xef\xbb\xbf"):
+                    raw = raw[3:]
+                
+                text = raw.decode("utf-8", errors="strict")
+                
+                # 2) unicode BOM 제거 (혹시 남아있으면)
+                text = text.lstrip("\ufeff")
+                
+                data = json.loads(text)
                 
                 section_id = data.get("section_id", json_file.stem)
                 samples[section_id] = data
@@ -308,3 +317,4 @@ SECTION_ID_MAP = {
 def normalize_section_id(section_id_or_title: str) -> str:
     """섹션 ID 정규화"""
     return SECTION_ID_MAP.get(section_id_or_title, section_id_or_title)
+
