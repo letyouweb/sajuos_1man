@@ -1,29 +1,38 @@
 ﻿"""
-SajuOS Debug Engine Router
+SajuOS Debug Engine Router - P0
 - 매칭 디버그 엔드포인트
 - 콘텐츠 주입 검증용
+- score_trace 포함
 """
-from fastapi import APIRouter, Query, HTTPException
-from typing import Optional
+from fastapi import APIRouter, Query, HTTPException, Request
+from typing import Optional, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/debug", tags=["Debug Engine"])
 
 
-@router.get("/match")
-async def debug_match(
+@router.get("/engine-survey")
+async def debug_engine_survey(
+    raw: Request,
     birth: str = Query(..., description="생년월일 YYYY-MM-DD"),
     time: Optional[str] = Query(None, description="생시 HH:MM"),
-    target_year: int = Query(2026, description="대상 년도")
+    target_year: int = Query(2026, description="대상 년도"),
+    industry: Optional[str] = Query(None, description="업종"),
+    painPoint: Optional[str] = Query(None, description="병목 (lead/conversion/operations/funding/retention)"),
+    businessGoal: Optional[str] = Query(None, description="목표 (growth/stability/expansion/exit)")
 ):
     """
-    매칭 디버그 엔드포인트
-    - pillars (년/월/일/시)
-    - feature_tags_count + 샘플
-    - 섹션별 top_cards
+    P0 디버그: 매칭 엔진 + 설문 기반 결과 검증
+    
+    Returns:
+        pillars, features, match_summary, score_traces, survey_data
     """
     from datetime import datetime
+    from app.services.calc_module import calc_module
+    from app.services.feature_tags import build_feature_tags, get_matching_tokens
+    from app.services.rulecard_scorer import RuleCardScorer
+    from app.services.report_builder import PREMIUM_SECTIONS
     
     # 1. birth 파싱
     try:
@@ -46,62 +55,53 @@ async def debug_match(
             pass
     
     # 3. 사주 계산
-    from app.services.calc_module import calc_module
     try:
         pillars = await calc_module.calculate_pillars(year, month, day, hour, minute)
     except Exception as e:
         raise HTTPException(500, f"Pillars calculation failed: {e}")
     
-    pillars_dict = {
-        "year": {"ganji": pillars.year.ganji, "gan": pillars.year.gan, "ji": pillars.year.ji},
-        "month": {"ganji": pillars.month.ganji, "gan": pillars.month.gan, "ji": pillars.month.ji},
-        "day": {"ganji": pillars.day.ganji, "gan": pillars.day.gan, "ji": pillars.day.ji},
-        "hour": {"ganji": pillars.hour.ganji, "gan": pillars.hour.gan, "ji": pillars.hour.ji} if pillars.hour else None
-    }
+    pillars_dict = pillars.to_dict()
+    pillars_str = f"{pillars.year.ganji} {pillars.month.ganji} {pillars.day.ganji}"
+    if pillars.hour:
+        pillars_str += f" {pillars.hour.ganji}"
     
-    # 4. feature_tags 생성
-    from app.services.feature_tags_no_time import build_feature_tags_no_time_from_pillars
-    try:
-        feature_tags = build_feature_tags_no_time_from_pillars(pillars.to_dict())
-    except Exception as e:
-        feature_tags = []
-        logger.warning(f"Feature tags error: {e}")
+    # 4. survey_data 구성
+    survey_data = {}
+    if industry:
+        survey_data["industry"] = industry
+    if painPoint:
+        survey_data["painPoint"] = painPoint
+    if businessGoal:
+        survey_data["businessGoal"] = businessGoal
     
-    # 5. RuleCards 매칭
-    from fastapi import Request
-    from app.main import app
+    # 5. feature_tags 생성 (단일 소스)
+    features = build_feature_tags(pillars_dict, survey_data if survey_data else None)
+    feature_tokens = get_matching_tokens(features)
     
-    rulestore = app.state.rulestore
+    # 6. RuleCards 매칭
+    rulestore = getattr(raw.app.state, "rulestore", None)
     if not rulestore:
         raise HTTPException(500, "RuleCards not loaded")
     
-    # 섹션별 매칭
-    from app.services.report_builder import PREMIUM_SECTIONS
+    # 7. 섹션별 매칭 + score_trace
+    match_summary = {}
+    score_traces = {}
     
-    section_results = {}
-    for section_id, spec in PREMIUM_SECTIONS.items():
-        matched = []
-        
-        for card in rulestore.cards:
-            # 태그 매칭
-            card_tags = set(card.tags)
-            feature_set = set(feature_tags)
-            matched_tags = card_tags & feature_set
-            
-            if matched_tags:
-                interp = card.interpretation or card.content.get("interpretation", "") or ""
-                matched.append({
-                    "id": card.id,
-                    "score": len(matched_tags),
-                    "matched_tags": list(matched_tags)[:5],
-                    "interpretation_preview": interp[:100] if interp else "[EMPTY]"
-                })
-        
-        # 상위 5개만
-        matched.sort(key=lambda x: x["score"], reverse=True)
-        section_results[section_id] = matched[:5]
+    scorer = RuleCardScorer(rulestore.cards)
     
-    # 6. 콘텐츠 주입 검증
+    for section_id in PREMIUM_SECTIONS.keys():
+        top_k, summary = scorer.get_top_k(features, survey_data if survey_data else None, section_id, k=5)
+        
+        match_summary[section_id] = {
+            "count": summary["passed_trigger"],
+            "selected": summary["selected"],
+            "top_ids": summary["top_ids"]
+        }
+        
+        if summary["score_traces"]:
+            score_traces[section_id] = summary["score_traces"]
+    
+    # 8. 콘텐츠 주입 검증
     content_check = {
         "total_cards": len(rulestore.cards),
         "cards_with_interpretation": sum(1 for c in rulestore.cards if c.interpretation),
@@ -110,23 +110,47 @@ async def debug_match(
     }
     
     return {
-        "pillars": pillars_dict,
-        "feature_tags": {
-            "count": len(feature_tags),
-            "sample": feature_tags[:30]
+        "pillars": pillars_str,
+        "features": {
+            "day_master": features.get("day_master"),
+            "month_branch": features.get("month_branch"),
+            "tokens_count": len(feature_tokens),
+            "tokens_sample": feature_tokens[:20],
+            "elements_count": features.get("elements_count"),
+            "ten_gods_count": features.get("ten_gods_count"),
+            "survey_tags": features.get("survey_tags")
         },
-        "sections": section_results,
+        "match_summary": match_summary,
+        "score_traces": score_traces,
+        "survey_data": survey_data,
         "content_check": content_check,
         "rulestore_source": getattr(rulestore, "source", "unknown")
     }
 
 
+@router.get("/match")
+async def debug_match(
+    raw: Request,
+    birth: str = Query(..., description="생년월일 YYYY-MM-DD"),
+    time: Optional[str] = Query(None, description="생시 HH:MM"),
+    target_year: int = Query(2026, description="대상 년도")
+):
+    """간단한 매칭 디버그"""
+    return await debug_engine_survey(
+        raw=raw,
+        birth=birth,
+        time=time,
+        target_year=target_year,
+        industry=None,
+        painPoint=None,
+        businessGoal=None
+    )
+
+
 @router.get("/rulecard/{card_id}")
-async def get_rulecard(card_id: str):
+async def get_rulecard(card_id: str, raw: Request):
     """특정 RuleCard 상세 조회"""
-    from app.main import app
-    
-    rulestore = app.state.rulestore
+    rulestore = getattr(raw.app.state, "rulestore", None)
     if not rulestore:
         raise HTTPException(500, "RuleCards not loaded")
     
@@ -138,21 +162,19 @@ async def get_rulecard(card_id: str):
                 "priority": card.priority,
                 "tags": card.tags,
                 "trigger": card.trigger,
-                "mechanism": card.mechanism or card.content.get("mechanism", ""),
-                "interpretation": card.interpretation or card.content.get("interpretation", ""),
-                "action": card.action or card.content.get("action", ""),
-                "cautions": card.cautions or card.content.get("cautions", []),
+                "mechanism": card.mechanism or (card.content or {}).get("mechanism", ""),
+                "interpretation": card.interpretation or (card.content or {}).get("interpretation", ""),
+                "action": card.action or (card.content or {}).get("action", ""),
+                "cautions": card.cautions or (card.content or {}).get("cautions", []),
             }
     
     raise HTTPException(404, f"RuleCard not found: {card_id}")
 
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats(raw: Request):
     """RuleCards 통계"""
-    from app.main import app
-    
-    rulestore = app.state.rulestore
+    rulestore = getattr(raw.app.state, "rulestore", None)
     if not rulestore:
         raise HTTPException(500, "RuleCards not loaded")
     

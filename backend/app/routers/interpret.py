@@ -26,6 +26,7 @@ from app.services.engine_v2 import SajuManager
 from app.services.job_store import job_store, JobStatus
 
 # RuleCard pipeline
+from app.services.feature_tags import build_feature_tags, get_matching_tokens
 from app.services.feature_tags_no_time import build_feature_tags_no_time_from_pillars
 from app.services.preset_type2 import BUSINESS_OWNER_PRESET_V2
 from app.services.focus_boost import boost_preset_focus
@@ -73,11 +74,12 @@ def _extract_pillars_from_saju_data(saju_data: dict) -> tuple:
 def _get_rulecards_and_feature_tags(
     saju_data: dict, 
     store, 
-    target_year: int
+    target_year: int,
+    survey_data: dict = None  # 🔥 P0: 설문 데이터 추가
 ) -> tuple:
     """
     사주 데이터에서 RuleCards + FeatureTags 반환
-    Returns: (rulecards: List, feature_tags: List, pool_count: int)
+    Returns: (rulecards: List, feature_tags: List, pool_count: int, features_dict: Dict)
     """
     year_p, month_p, day_p = _extract_pillars_from_saju_data(saju_data)
     
@@ -85,13 +87,28 @@ def _get_rulecards_and_feature_tags(
     
     if not (year_p and month_p and day_p):
         logger.warning("[RuleCards] 사주 기둥 데이터 부족")
-        return [], [], 0
+        return [], [], 0, {}
     
-    # FeatureTags 생성
-    ft = build_feature_tags_no_time_from_pillars(year_p, month_p, day_p, overlay_year=target_year)
-    feature_tags = ft.get("tags", [])
+    # 🔥 P0: build_feature_tags 단일 소스 호출
+    pillars_dict = {
+        "year": {"ganji": year_p, "gan": year_p[0] if year_p else "", "ji": year_p[1] if len(year_p) > 1 else ""},
+        "month": {"ganji": month_p, "gan": month_p[0] if month_p else "", "ji": month_p[1] if len(month_p) > 1 else ""},
+        "day": {"ganji": day_p, "gan": day_p[0] if day_p else "", "ji": day_p[1] if len(day_p) > 1 else ""},
+    }
     
-    logger.info(f"[RuleCards] FeatureTags 생성: {len(feature_tags)}개")
+    # 시주 추가 (있을 경우)
+    hour_p = None
+    if saju_data.get("pillars", {}).get("hour"):
+        hour_data = saju_data["pillars"]["hour"]
+        hour_p = hour_data.get("ganji", "")
+        if hour_p:
+            pillars_dict["hour"] = {"ganji": hour_p, "gan": hour_p[0], "ji": hour_p[1] if len(hour_p) > 1 else ""}
+    
+    # 🔥 P0: 단일 소스 feature_tags 생성
+    features_dict = build_feature_tags(pillars_dict, survey_data)
+    feature_tags = get_matching_tokens(features_dict)
+    
+    logger.info(f"[RuleCards] FeatureTags 생성: {len(feature_tags)}개 | day_master={features_dict.get('day_master')}")
     
     # Preset 부스트 및 카드 선택
     boosted = boost_preset_focus(BUSINESS_OWNER_PRESET_V2, feature_tags)
@@ -105,7 +122,7 @@ def _get_rulecards_and_feature_tags(
     pool_count = len(all_cards)
     logger.info(f"[RuleCards] ✅ Pool={pool_count}장, FeatureTags={len(feature_tags)}개")
     
-    return all_cards, feature_tags, pool_count
+    return all_cards, feature_tags, pool_count, features_dict
 
 
 def inject_year_context(question: str, target_year: int) -> str:
@@ -165,8 +182,8 @@ async def interpret_saju(
     
     if store and mode != "direct":
         try:
-            rulecards, feature_tags, pool_count = _get_rulecards_and_feature_tags(
-                saju_data, store, final_year
+            rulecards, feature_tags, pool_count, features_dict = _get_rulecards_and_feature_tags(
+                saju_data, store, final_year, payload.survey_data
             )
             # 레거시 모드는 컨텍스트만 추가
         except Exception as e:
@@ -227,8 +244,8 @@ async def generate_premium_report(
     
     if store:
         try:
-            rulecards, feature_tags, pool_count = _get_rulecards_and_feature_tags(
-                saju_data, store, final_year
+            rulecards, feature_tags, pool_count, features_dict = _get_rulecards_and_feature_tags(
+                saju_data, store, final_year, payload.survey_data
             )
         except Exception as e:
             logger.warning(f"[PremiumReport] RuleCards 로드 실패: {e}")
@@ -332,8 +349,8 @@ async def regenerate_single_section(
     
     if store:
         try:
-            rulecards, feature_tags, pool_count = _get_rulecards_and_feature_tags(
-                saju_data, store, final_year
+            rulecards, feature_tags, pool_count, features_dict = _get_rulecards_and_feature_tags(
+                saju_data, store, final_year, payload.survey_data
             )
         except Exception as e:
             logger.warning(f"[RegenerateSection] RuleCards 로드 실패: {e}")
@@ -538,11 +555,12 @@ async def generate_report_async(
     store = getattr(raw.app.state, "rulestore", None)
     rulecards = []
     feature_tags = []
+    features_dict = {}
     
     if store:
         try:
-            rulecards, feature_tags, _ = _get_rulecards_and_feature_tags(
-                saju_data, store, final_year
+            rulecards, feature_tags, _, features_dict = _get_rulecards_and_feature_tags(
+                saju_data, store, final_year, payload.survey_data
             )
         except Exception as e:
             logger.warning(f"[AsyncReport] RuleCards 로드 실패: {e}")
