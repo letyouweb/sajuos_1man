@@ -33,18 +33,18 @@
       "topic": "STRUCTURE",
       "priority": 8,
       "trigger": {
-        "logi": "걸록",
+        "logi": "건록",
         "position": "월"
       },
-      "mechanism": "걸록은 월에 위치할 때 집안의 독립적 에너지를 형성.",
-      "interpretation": "월의 걸록은 독립적으로 집안을 세우고, 자립적 기반을 마련함.",
+      "mechanism": "건록은 월에 위치할 때 집안의 독립적 에너지를 형성.",
+      "interpretation": "월의 건록은 독립적으로 집안을 세우고, 자립적 기반을 마련함.",
       "action": "독립적인 기반을 구축하고, 자립적 활동을 계획.",
       "cautions": [
         "가족과의 갈등 가능성",
         "과도한 독립성으로 인한 고립"
       ],
       "tags": [
-        "걸록",
+        "건록",
         "월",
         "독립",
         "자립",
@@ -141,21 +141,21 @@
       "topic": "STRUCTURE",
       "priority": 9,
       "trigger": {
-        "structure": "걸록격",
+        "structure": "건록격",
         "condition": {
           "month": "월",
           "heavenly_stem": "정관"
         }
       },
-      "mechanism": "걸록격은 월에 정관이 있을 때 직업적 안정성을 형성.",
-      "interpretation": "걸록격은 정관을 통해 직업적 안정성과 사회적 지위를 얻음.",
+      "mechanism": "건록격은 월에 정관이 있을 때 직업적 안정성을 형성.",
+      "interpretation": "건록격은 정관을 통해 직업적 안정성과 사회적 지위를 얻음.",
       "action": "정관을 활용해 직업적 목표를 설정하고, 사회적 지위를 강화.",
       "cautions": [
         "정관의 부재 시 불안정 가능성",
         "과도한 직업 중심 사고"
       ],
       "tags": [
-        "걸록격",
+        "건록격",
         "정관",
         "월",
         "직업",
@@ -198,22 +198,22 @@
       "topic": "STRUCTURE",
       "priority": 7,
       "trigger": {
-        "structure": "걸록격",
+        "structure": "건록격",
         "condition": {
           "month": "월",
           "heavenly_stem": "정관",
           "support": "인성"
         }
       },
-      "mechanism": "걸록격은 정관과 인성이 조화를 이룰 때 더욱 안정적.",
-      "interpretation": "정관과 인성의 조화는 걸록격의 직업적 안정성을 강화.",
+      "mechanism": "건록격은 정관과 인성이 조화를 이룰 때 더욱 안정적.",
+      "interpretation": "정관과 인성의 조화는 건록격의 직업적 안정성을 강화.",
       "action": "정관과 인성을 조화롭게 활용해 직업적 목표를 달성.",
       "cautions": [
         "인성의 과도한 영향으로 인한 불균형",
         "정관의 약화 가능성"
       ],
       "tags": [
-        "걸록격",
+        "건록격",
         "정관",
         "인성",
         "조화",
@@ -229,22 +229,22 @@
       "topic": "STRUCTURE",
       "priority": 8,
       "trigger": {
-        "structure": "걸록격",
+        "structure": "건록격",
         "condition": {
           "month": "월",
           "heavenly_stem": "정관",
           "support": "병화"
         }
       },
-      "mechanism": "병화는 걸록격에서 직업적 목표와 사용처를 결정.",
-      "interpretation": "병화는 걸록격의 직업적 방향성과 사용처를 명확히 함.",
+      "mechanism": "병화는 건록격에서 직업적 목표와 사용처를 결정.",
+      "interpretation": "병화는 건록격의 직업적 방향성과 사용처를 명확히 함.",
       "action": "병화를 활용해 직업적 방향성을 설정하고, 사용처를 명확히 함.",
       "cautions": [
         "병화의 부재 시 방향성 부족",
         "사용처의 불명확성"
       ],
       "tags": [
-        "걸록격",
+        "건록격",
         "병화",
         "직업",
         "목표",
@@ -260,22 +260,22 @@
       "topic": "STRUCTURE",
       "priority": 7,
       "trigger": {
-        "structure": "걸록격",
+        "structure": "건록격",
         "condition": {
           "month": "월",
           "heavenly_stem": "정관",
           "support": "임수"
         }
       },
-      "mechanism": "임수는 걸록격에서 능력을 발휘하고 지속성을 부여.",
-      "interpretation": "임수는 걸록격의 능력을 지속적으로 발휘하게 함.",
+      "mechanism": "임수는 건록격에서 능력을 발휘하고 지속성을 부여.",
+      "interpretation": "임수는 건록격의 능력을 지속적으로 발휘하게 함.",
       "action": "임수를 활용해 능력을 발휘하고, 지속성을 유지.",
       "cautions": [
         "임수의 부재 시 지속성 부족",
         "능력 발휘의 제한"
       ],
       "tags": [
-        "걸록격",
+        "건록격",
         "임수",
         "능력",
         "지속성",

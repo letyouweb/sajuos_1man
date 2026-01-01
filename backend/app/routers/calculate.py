@@ -60,16 +60,8 @@ async def calculate_saju(
     사주 계산 API (KASI 우선, ephem Fallback)
     """
     
-    # ephem 라이브러리 확인
-    if not EPHEM_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error_code": "EPHEM_NOT_INSTALLED",
-                "message": "천문 계산 라이브러리(ephem)가 설치되지 않았습니다.",
-                "detail": "pip install ephem 실행 필요"
-            }
-        )
+    # 🔥 P0 FIX: ephem 체크 제거 - KASI-only로도 동작 가능
+    # ephem이 없어도 KASI API로 계산 가능
     
     if saju_engine is None:
         raise HTTPException(
