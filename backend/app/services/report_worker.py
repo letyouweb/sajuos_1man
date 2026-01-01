@@ -20,6 +20,122 @@ from app.services.saju_engine import calc_daeun_pillars
 logger = logging.getLogger(__name__)
 
 
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 P0: 원국 팩트(십성/오행) 확정값 + 대운 근거 계산
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEM_ELEM_POLAR = {
+    "갑": ("wood", "yang"), "을": ("wood", "yin"),
+    "병": ("fire", "yang"), "정": ("fire", "yin"),
+    "무": ("earth", "yang"), "기": ("earth", "yin"),
+    "경": ("metal", "yang"), "신": ("metal", "yin"),
+    "임": ("water", "yang"), "계": ("water", "yin"),
+}
+
+BRANCH_HIDDEN_STEMS = {
+    "자": ["임", "계"],
+    "축": ["기", "계", "신"],
+    "인": ["갑", "병", "무"],
+    "묘": ["을"],
+    "진": ["무", "을", "계"],
+    "사": ["병", "무", "경"],
+    "오": ["정", "기"],
+    "미": ["기", "정", "을"],
+    "신": ["경", "임", "무"],
+    "유": ["신"],
+    "술": ["무", "신", "정"],
+    "해": ["갑", "임"],
+}
+
+GENERATOR = {"wood": "fire", "fire": "earth", "earth": "metal", "metal": "water", "water": "wood"}
+CONTROLS = {"wood": "earth", "earth": "water", "water": "fire", "fire": "metal", "metal": "wood"}
+
+
+def _pillar_parts(p: str) -> tuple[str, str]:
+    if not p or len(p) < 2:
+        return "", ""
+    return p[0], p[1]
+
+
+def _ten_god(day_stem: str, other_stem: str) -> str:
+    """
+    일간(day_stem) 기준으로 다른 천간(other_stem)의 십성 계산.
+    """
+    if not day_stem or not other_stem:
+        return ""
+    dm = STEM_ELEM_POLAR.get(day_stem)
+    ot = STEM_ELEM_POLAR.get(other_stem)
+    if not dm or not ot:
+        return ""
+    dm_elem, dm_pol = dm
+    ot_elem, ot_pol = ot
+
+    # 비겁(동일 오행)
+    if ot_elem == dm_elem:
+        return "비견" if ot_pol == dm_pol else "겁재"
+    # 식상(내가 생)
+    if GENERATOR[dm_elem] == ot_elem:
+        return "식신" if ot_pol == dm_pol else "상관"
+    # 재성(내가 극)
+    if CONTROLS[dm_elem] == ot_elem:
+        return "편재" if ot_pol == dm_pol else "정재"
+    # 관성(나를 극)
+    if CONTROLS[ot_elem] == dm_elem:
+        return "편관" if ot_pol == dm_pol else "정관"
+    # 인성(나를 생)
+    if GENERATOR[ot_elem] == dm_elem:
+        return "편인" if ot_pol == dm_pol else "정인"
+    return ""
+
+
+def _compute_fact_flags(saju_data: dict) -> dict:
+    """
+    원국 4주 + 지장간을 모두 펼쳐서,
+    - elements_present (wood/fire/earth/metal/water)
+    - ten_gods_present (정재/편재/겁재 등)
+    - has_wealth_star, has_robwealth
+    을 '확정값'으로 산출.
+    """
+    yp, mp, dp, hp = (
+        saju_data.get("year_pillar", ""),
+        saju_data.get("month_pillar", ""),
+        saju_data.get("day_pillar", ""),
+        saju_data.get("hour_pillar", ""),
+    )
+    dm = saju_data.get("day_master", "")
+
+    stems: list[str] = []
+    for p in [yp, mp, dp, hp]:
+        st, br = _pillar_parts(p)
+        if st:
+            stems.append(st)
+        if br and br in BRANCH_HIDDEN_STEMS:
+            stems.extend(BRANCH_HIDDEN_STEMS[br])
+
+    ten_gods: list[str] = []
+    elems: list[str] = []
+    for st in stems:
+        tg = _ten_god(dm, st)
+        if tg:
+            ten_gods.append(tg)
+        ep = STEM_ELEM_POLAR.get(st)
+        if ep:
+            elems.append(ep[0])
+
+    ten_gods_u = sorted(set(ten_gods))
+    elems_u = sorted(set(elems))
+    has_wealth = any(x in ten_gods_u for x in ["정재", "편재"])
+    has_rob = "겁재" in ten_gods_u
+
+    return {
+        "stems_all": stems,
+        "elements_present": elems_u,
+        "ten_gods_present": ten_gods_u,
+        "has_wealth_star": has_wealth,
+        "has_robwealth": has_rob,
+    }
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 P0: 대운 계산 헬퍼 함수
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -30,15 +146,15 @@ def _year_stem_is_yang(stem_ko: str) -> bool:
 
 
 def _normalize_gender(g: str) -> str:
-    """성별 정규화"""
+    """성별 정규화 (female/male/여/남 등만 허용)"""
     if not g:
         return ""
-    g = str(g).strip().lower()
-    if g in ["female", "f", "여", "여자", "여성"]:
+    s = str(g).strip().lower()
+    if s in ["f", "female", "woman", "여", "여자", "여성"]:
         return "female"
-    if g in ["male", "m", "남", "남자", "남성"]:
+    if s in ["m", "male", "man", "남", "남자", "남성"]:
         return "male"
-    return g
+    return ""
 
 
 def _calc_age(birth_info: dict) -> int:
@@ -508,100 +624,99 @@ class ReportWorker:
                 "guardrail_errors": [f"Exception: {str(e)[:100]}"]
             }
     
-    def _prepare_saju_data(self, input_json: Dict) -> Dict:
-        """사주 데이터 추출"""
+        def _prepare_saju_data(self, input_json: Dict) -> Dict:
+        """사주 데이터 추출 + P0: gender/birth_info/age/대운/원국팩트 확정"""
+
         saju_result = input_json.get("saju_result") or {}
-        
+
         def extract_ganji(pillar_data):
             if not pillar_data:
                 return ""
             if isinstance(pillar_data, dict):
-                return pillar_data.get("ganji", "")
+                return pillar_data.get("ganji", "") or pillar_data.get("value", "") or ""
             if isinstance(pillar_data, str):
                 return pillar_data
             return ""
-        
+
+        # 1) 4주 추출 (saju_result 우선, nested saju 보강, input_json 최후)
         year_pillar = extract_ganji(saju_result.get("year_pillar"))
         month_pillar = extract_ganji(saju_result.get("month_pillar"))
         day_pillar = extract_ganji(saju_result.get("day_pillar"))
         hour_pillar = extract_ganji(saju_result.get("hour_pillar"))
-        
+
         saju_nested = saju_result.get("saju") or {}
-        if not year_pillar and saju_nested:
-            year_pillar = extract_ganji(saju_nested.get("year_pillar"))
-        if not month_pillar and saju_nested:
-            month_pillar = extract_ganji(saju_nested.get("month_pillar"))
-        if not day_pillar and saju_nested:
-            day_pillar = extract_ganji(saju_nested.get("day_pillar"))
-        if not hour_pillar and saju_nested:
-            hour_pillar = extract_ganji(saju_nested.get("hour_pillar"))
-        
-        if not year_pillar:
-            year_pillar = input_json.get("year_pillar", "")
-        if not month_pillar:
-            month_pillar = input_json.get("month_pillar", "")
-        if not day_pillar:
-            day_pillar = input_json.get("day_pillar", "")
-        if not hour_pillar:
-            hour_pillar = input_json.get("hour_pillar", "")
-        
-        day_master = saju_result.get("day_master", "")
-        if not day_master and saju_nested:
-            day_master = saju_nested.get("day_master", "")
-        
-        day_master_element = saju_result.get("day_master_element", "")
-        day_master_description = saju_result.get("day_master_description", "")
+        if saju_nested:
+            year_pillar = year_pillar or extract_ganji(saju_nested.get("year_pillar"))
+            month_pillar = month_pillar or extract_ganji(saju_nested.get("month_pillar"))
+            day_pillar = day_pillar or extract_ganji(saju_nested.get("day_pillar"))
+            hour_pillar = hour_pillar or extract_ganji(saju_nested.get("hour_pillar"))
 
-        # ✅ P0 PATCH: birth_info를 saju_result 우선 + input_json.birth_info 보강 (age=0 방지)
-        birth_info = (
-            saju_result.get("birth_info")
-            or input_json.get("birth_info")
-            or {}
-        )
-        if isinstance(birth_info, str):
+        year_pillar = year_pillar or (input_json.get("year_pillar") or "")
+        month_pillar = month_pillar or (input_json.get("month_pillar") or "")
+        day_pillar = day_pillar or (input_json.get("day_pillar") or "")
+        hour_pillar = hour_pillar or (input_json.get("hour_pillar") or "")
+
+        # 2) 일간/오행/설명
+        day_master = saju_result.get("day_master") or saju_nested.get("day_master") or ""
+        day_master_element = saju_result.get("day_master_element") or ""
+        day_master_description = saju_result.get("day_master_description") or ""
+
+        # 3) birth_info는 dict로 통일 (reports.py에서 birth_info 내려옴)
+        birth_info = saju_result.get("birth_info") or input_json.get("birth_info") or {}
+        if not isinstance(birth_info, dict):
             birth_info = {}
-        
-        # 🔥 P0: 대운 계산 (서버 확정값)
-        survey_data = input_json.get("survey_data") or {}
 
-        # ✅ P0 PATCH: gender normalize 입력 우선순위 보강
+        # 4) gender/age 확정
         gender = _normalize_gender(
             input_json.get("gender")
-            or (birth_info or {}).get("gender")
-            or (survey_data or {}).get("gender")
-            or saju_result.get("gender", "")
+            or birth_info.get("gender")
+            or saju_result.get("gender")
+            or ""
         )
-        
         age = _calc_age(birth_info)
-        if not age and birth_info.get("year"):
-            try:
-                age = date.today().year - int(birth_info.get("year"))
-            except:
-                age = 0
-        
-        year_stem = year_pillar[:1] if year_pillar else ""
-        
-        direction = None
-        daeun_list = []
-        current_daeun = None
-        
-        if gender and year_stem and month_pillar and age:
-            is_yang_year = _year_stem_is_yang(year_stem)
-            is_male = (gender == "male")
-            # 양남음녀=순행, 음남양녀=역행
-            direction = "forward" if ((is_male and is_yang_year) or ((not is_male) and (not is_yang_year))) else "backward"
-            daeun_list = calc_daeun_pillars(month_pillar, direction, count=10)
+
+        # 5) 대운 확정 (양남음녀 순행 / 음남양녀 역행)
+        year_stem, _ = _pillar_parts(year_pillar)
+        is_yang_year = _year_stem_is_yang(year_stem)
+        is_male = (gender == "male")
+
+        daeun_direction = ""
+        daeun_list: list[str] = []
+        current_daeun = ""
+        daeun_ten_gods: list[str] = []
+
+        if gender and month_pillar and year_stem:
+            daeun_direction = "forward" if ((is_male and is_yang_year) or ((not is_male) and (not is_yang_year))) else "backward"
+            daeun_list = calc_daeun_pillars(month_pillar, daeun_direction, count=10) or []
+
+            # 간단 start_age (실무용): 3세 시작 가정
+            start_age = 3
+            idx = max(0, (age - start_age) // 10) if age else 0
             if daeun_list:
-                start_age = 3  # 대운 시작 나이
-                idx = (age - start_age) // 10
-                if 0 <= idx < len(daeun_list):
-                    current_daeun = daeun_list[idx]
-            
-            logger.info(f"[Worker] 🔥 대운 계산: gender={gender} | age={age} | direction={direction} | current_daeun={current_daeun}")
+                idx = min(idx, len(daeun_list) - 1)
+                current_daeun = daeun_list[idx]
+
+            # 현재대운 십성(대운간 + 지장간)
+            dm = day_master
+            st, br = _pillar_parts(current_daeun)
+            daeun_stems: list[str] = []
+            if st:
+                daeun_stems.append(st)
+            if br and br in BRANCH_HIDDEN_STEMS:
+                daeun_stems.extend(BRANCH_HIDDEN_STEMS[br])
+
+            for s in daeun_stems:
+                tg = _ten_god(dm, s)
+                if tg:
+                    daeun_ten_gods.append(tg)
+            daeun_ten_gods = sorted(set(daeun_ten_gods))
+
+            logger.info(f"[Worker] 🔥 대운 계산: gender={gender} | age={age} | direction={daeun_direction} | current_daeun={current_daeun}")
         else:
             logger.warning(f"[Worker] ⚠️ 대운 계산 불가: gender={gender} | year_stem={year_stem} | month_pillar={month_pillar} | age={age}")
-        
-        return {
+
+        # 6) saju_data 구성
+        saju_data = {
             "year_pillar": year_pillar,
             "month_pillar": month_pillar,
             "day_pillar": day_pillar,
@@ -611,14 +726,19 @@ class ReportWorker:
             "day_master_description": day_master_description,
             "birth_info": birth_info,
             "saju_result": saju_result,
-            # 🔥 P0: 대운 정보 추가
+            # P0: gender/age/대운
             "gender": gender,
             "age": age,
-            "daeun_direction": direction,
+            "daeun_direction": daeun_direction,
             "daeun_list": daeun_list,
             "current_daeun": current_daeun,
+            "daeun_ten_gods": daeun_ten_gods,
         }
-    
+
+        # 7) 원국 팩트(십성/오행/재성 유무) 확정값 추가
+        saju_data.update(_compute_fact_flags(saju_data))
+        return saju_data
+
     def _build_feature_tags(self, saju_data: Dict) -> List[str]:
         """Feature Tags 생성"""
         tags = []

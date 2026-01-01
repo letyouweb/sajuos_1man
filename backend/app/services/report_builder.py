@@ -255,42 +255,46 @@ ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
 
 
 
-def build_fact_check_context(saju_data: dict) -> str:
-    """P0: 원국 팩트 체크 블록 생성 - 없는 십성 언급 금지"""
-    if not saju_data:
-        return ""
-    
-    pillars = "".join([
-        saju_data.get("year_pillar", ""),
-        saju_data.get("month_pillar", ""),
-        saju_data.get("day_pillar", ""),
-        saju_data.get("hour_pillar", ""),
-    ])
-    
-    has_water = any(ch in pillars for ch in ["임", "계", "해", "자"])
-    has_earth = any(ch in pillars for ch in ["무", "기", "진", "술", "축", "미"])
-    has_wood = any(ch in pillars for ch in ["갑", "을", "인", "묘"])
-    has_fire = any(ch in pillars for ch in ["병", "정", "사", "오"])
-    has_metal = any(ch in pillars for ch in ["경", "신", "신", "유"])
-    
-    current_daeun = saju_data.get("current_daeun") or "미산출"
-    daeun_direction = saju_data.get("daeun_direction") or "미산출"
-    
-    return f"""
-## 원국 팩트 체크 (절대 준수)
-- 원국: {saju_data.get("year_pillar", "-")} {saju_data.get("month_pillar", "-")} {saju_data.get("day_pillar", "-")} {saju_data.get("hour_pillar", "-") or "미입력"}
-- 현재 대운: {current_daeun} (방향={daeun_direction})
-- 수 기운(임계해자): {"있음" if has_water else "없음"} -> 없으면 재성 단정 금지
-- 토 기운(무기진술축미): {"있음" if has_earth else "없음"}
-- 목 기운(갑을인묘): {"있음" if has_wood else "없음"}
-- 화 기운(병정사오): {"있음" if has_fire else "없음"}
-- 금 기운(경신신유): {"있음" if has_metal else "없음"}
+TENGOD_ORDER = ["비견","겁재","식신","상관","편재","정재","편관","정관","편인","정인"]
 
-### 금지 규칙
-1. 원국에 없는 오행/십성을 있다고 말하지 마라
-2. 대운에서 들어오는 기운은 대운에서 ~가 들어온다로 명시
-"""
 
+def build_fact_check_context(saju_data: Dict[str, Any]) -> str:
+    yp = saju_data.get("year_pillar","")
+    mp = saju_data.get("month_pillar","")
+    dp = saju_data.get("day_pillar","")
+    hp = saju_data.get("hour_pillar","")
+    dm = saju_data.get("day_master","")
+    gender = saju_data.get("gender","")
+    age = saju_data.get("age",0)
+    cur = saju_data.get("current_daeun","")
+    direction = saju_data.get("daeun_direction","")
+    tg = saju_data.get("ten_gods_present") or []
+    dtg = saju_data.get("daeun_ten_gods") or []
+    elems = saju_data.get("elements_present") or []
+    has_wealth = bool(saju_data.get("has_wealth_star"))
+
+    def _fmt(xs, order=None):
+        if not xs:
+            return "(없음)"
+        if order:
+            xs = [x for x in order if x in set(xs)] + [x for x in xs if x not in set(order)]
+        return ", ".join(xs)
+
+    return (
+        "## 🚨 원국 팩트체크 (절대 준수)\n"
+        f"- 원국(4주): {yp} {mp} {dp} {hp}\n"
+        f"- 일간: {dm}\n"
+        f"- 성별/만나이: {gender} / {age}\n"
+        f"- 현재 대운: {cur} (방향={direction})\n"
+        f"- 원국 십성(천간+지장간): {_fmt(tg, TENGOD_ORDER)}\n"
+        f"- 현재대운 십성: {_fmt(dtg, TENGOD_ORDER)}\n"
+        f"- 오행: {_fmt(elems)}\n"
+        f"- 재성(정재/편재) 원국 존재: {'있음' if has_wealth else '없음'}\n\n"
+        "### 금지 규칙\n"
+        "1) 위 '원국 십성'에 없는 십성을 '있다'고 단정하지 마라.\n"
+        "2) 재성이 원국에 없으면 '정재/편재가 있다'라고 말하지 마라.\n"
+        "3) 대운 변화는 반드시 '대운에서 들어온다'로 원국과 구분해서 말해라.\n"
+    )
 def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
     spec = PREMIUM_SECTIONS.get(section_id)
     if not spec:
