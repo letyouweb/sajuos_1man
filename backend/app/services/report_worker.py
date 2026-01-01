@@ -624,9 +624,8 @@ class ReportWorker:
                 "guardrail_errors": [f"Exception: {str(e)[:100]}"]
             }
     
-        def _prepare_saju_data(self, input_json: Dict) -> Dict:
+    def _prepare_saju_data(self, input_json: Dict) -> Dict:
         """사주 데이터 추출 + P0: gender/birth_info/age/대운/원국팩트 확정"""
-
         saju_result = input_json.get("saju_result") or {}
 
         def extract_ganji(pillar_data):
