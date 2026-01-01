@@ -15,6 +15,69 @@ logger = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ALLOWED_SECTION_IDS = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 P0: 원국 철벽 필터링 - 없는 오행/십성 토픽 제외
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ELEMENT_CHARS = {
+    "water": ["임", "계", "해", "자"],  # 수(水) - 재성
+    "earth": ["무", "기", "진", "술", "축", "미"],  # 토(土) - 비겁
+    "wood": ["갑", "을", "인", "묘"],  # 목(木) - 관성
+    "fire": ["병", "정", "사", "오"],  # 화(火) - 인성/식상
+    "metal": ["경", "신", "신", "유"],  # 금(金) - 식상/인성
+}
+
+ELEMENT_TOPICS = {
+    "water": ["재성", "정재", "편재", "재물", "돈"],
+    "earth": ["비겁", "비견", "겁재"],
+    "wood": ["관성", "정관", "편관"],
+    "fire": ["인성", "정인", "편인", "식상", "식신", "상관"],
+    "metal": ["식상", "식신", "상관"],
+}
+
+
+def get_present_elements(saju_data: dict) -> set:
+    """원국에 존재하는 오행 반환"""
+    if not saju_data:
+        return set()
+    
+    pillars = "".join([
+        saju_data.get("year_pillar", ""),
+        saju_data.get("month_pillar", ""),
+        saju_data.get("day_pillar", ""),
+        saju_data.get("hour_pillar", ""),
+    ])
+    
+    present = set()
+    for element, chars in ELEMENT_CHARS.items():
+        if any(ch in pillars for ch in chars):
+            present.add(element)
+    
+    return present
+
+
+def should_exclude_card(card: dict, present_elements: set) -> bool:
+    """원국에 없는 오행 관련 카드인지 확인"""
+    if not present_elements:
+        return False  # 원국 정보 없으면 필터링 안함
+    
+    topic = (card.get("topic") or "").lower()
+    tags = " ".join(card.get("tags") or []).lower()
+    card_text = f"{topic} {tags}"
+    
+    # 각 오행별로 체크
+    for element, topics in ELEMENT_TOPICS.items():
+        if element not in present_elements:
+            # 이 오행이 원국에 없으면, 관련 토픽 카드 제외
+            for t in topics:
+                if t in card_text:
+                    return True
+    
+    return False
+
+
+
+
 # 설문 가중치 매핑
 INDUSTRY_WEIGHTS = {
     "it": ["창업", "사업", "식상", "상관", "인성"],
@@ -125,7 +188,8 @@ class RuleCardScorer:
         section_id: str,
         feature_tags: List[str],
         survey_data: Optional[Dict] = None,
-        existing_topics: Set[str] = None
+        existing_topics: Set[str] = None,
+        saju_data: Optional[Dict] = None  # 🔥 P0: 철벽 필터링용
     ) -> SectionCards:
         """
         섹션별 카드 스코어링 (P0 인터페이스)
@@ -141,9 +205,23 @@ class RuleCardScorer:
         survey_weights = get_survey_tag_weights(survey_data)
         section_tags = set(SECTION_WEIGHT_TAGS.get(section_id, []))
         
-        scored_cards = []
+        # 🔥 P0: 원국 철벽 필터링
+        present_elements = get_present_elements(saju_data) if saju_data else set()
+        filtered_cards = []
+        excluded_count = 0
         
         for card in all_cards:
+            if present_elements and should_exclude_card(card, present_elements):
+                excluded_count += 1
+                continue
+            filtered_cards.append(card)
+        
+        if excluded_count > 0:
+            logger.info(f"[Scorer] 🔥 철벽 필터: {excluded_count}장 제외 (원국에 없는 오행)")
+        
+        scored_cards = []
+        
+        for card in filtered_cards:
             card_id = card.get("id", card.get("_id", ""))
             topic = card.get("topic", "GENERAL")
             subtopic = card.get("subtopic", "")
@@ -190,6 +268,8 @@ class RuleCardScorer:
         match_summary = {
             "section_id": section_id,
             "total_pool": len(all_cards),
+            "filtered_pool": len(filtered_cards),
+            "excluded_by_fact_check": excluded_count,
             "selected_count": len(selected),
             "top_tags": list(feature_set)[:10],
             "survey_applied": bool(survey_data),

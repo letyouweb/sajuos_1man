@@ -11,11 +11,53 @@ Report Worker v13 - P0 Pivot: 설문 기반 RuleCardScorer 통합
 import asyncio
 import logging
 import time
+from datetime import date
 from typing import Dict, Any, Optional, List
 
 from app.services.supabase_service import supabase_service
+from app.services.saju_engine import calc_daeun_pillars
 
 logger = logging.getLogger(__name__)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 P0: 대운 계산 헬퍼 함수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _year_stem_is_yang(stem_ko: str) -> bool:
+    """년간이 양간인지 확인 (갑병무경임)"""
+    return stem_ko in ["갑", "병", "무", "경", "임"]
+
+
+def _normalize_gender(g: str) -> str:
+    """성별 정규화"""
+    if not g:
+        return ""
+    g = str(g).strip().lower()
+    if g in ["female", "f", "여", "여자", "여성"]:
+        return "female"
+    if g in ["male", "m", "남", "남자", "남성"]:
+        return "male"
+    return g
+
+
+def _calc_age(birth_info: dict) -> int:
+    """생년월일로 만 나이 계산"""
+    if not birth_info:
+        return 0
+    y = birth_info.get("year")
+    m = birth_info.get("month", 1)
+    d = birth_info.get("day", 1)
+    if not y:
+        return 0
+    try:
+        today = date.today()
+        age = today.year - int(y)
+        if (today.month, today.day) < (int(m), int(d)):
+            age -= 1
+        return max(age, 0)
+    except:
+        return 0
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -316,8 +358,9 @@ class ReportWorker:
                 all_cards=all_cards,
                 section_id=section_id,
                 feature_tags=feature_tags,
-                survey_data=survey_data,  # 🔥 핵심: 설문 데이터 전달
-                existing_topics=set()
+                survey_data=survey_data,
+                existing_topics=set(),
+                saju_data=saju_data  # 🔥 P0: 철벽 필터링용
             )
             
             # SectionCards 객체에서 데이터 추출
@@ -506,7 +549,47 @@ class ReportWorker:
         
         day_master_element = saju_result.get("day_master_element", "")
         day_master_description = saju_result.get("day_master_description", "")
-        birth_info = saju_result.get("birth_info", "")
+        birth_info = saju_result.get("birth_info", {})
+        if isinstance(birth_info, str):
+            birth_info = {}
+        
+        # 🔥 P0: 대운 계산 (서버 확정값)
+        survey_data = input_json.get("survey_data") or {}
+        gender = _normalize_gender(
+            input_json.get("gender") or 
+            birth_info.get("gender") or 
+            survey_data.get("gender") or 
+            saju_result.get("gender", "")
+        )
+        
+        age = _calc_age(birth_info)
+        if not age and birth_info.get("year"):
+            try:
+                age = date.today().year - int(birth_info.get("year"))
+            except:
+                age = 0
+        
+        year_stem = year_pillar[:1] if year_pillar else ""
+        
+        direction = None
+        daeun_list = []
+        current_daeun = None
+        
+        if gender and year_stem and month_pillar and age:
+            is_yang_year = _year_stem_is_yang(year_stem)
+            is_male = (gender == "male")
+            # 양남음녀=순행, 음남양녀=역행
+            direction = "forward" if ((is_male and is_yang_year) or ((not is_male) and (not is_yang_year))) else "backward"
+            daeun_list = calc_daeun_pillars(month_pillar, direction, count=10)
+            if daeun_list:
+                start_age = 3  # 대운 시작 나이
+                idx = (age - start_age) // 10
+                if 0 <= idx < len(daeun_list):
+                    current_daeun = daeun_list[idx]
+            
+            logger.info(f"[Worker] 🔥 대운 계산: gender={gender} | age={age} | direction={direction} | current_daeun={current_daeun}")
+        else:
+            logger.warning(f"[Worker] ⚠️ 대운 계산 불가: gender={gender} | year_stem={year_stem} | month_pillar={month_pillar} | age={age}")
         
         return {
             "year_pillar": year_pillar,
@@ -518,6 +601,12 @@ class ReportWorker:
             "day_master_description": day_master_description,
             "birth_info": birth_info,
             "saju_result": saju_result,
+            # 🔥 P0: 대운 정보 추가
+            "gender": gender,
+            "age": age,
+            "daeun_direction": direction,
+            "daeun_list": daeun_list,
+            "current_daeun": current_daeun,
         }
     
     def _build_feature_tags(self, saju_data: Dict) -> List[str]:

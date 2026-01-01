@@ -253,7 +253,45 @@ ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
 """
 
 
-def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
+
+
+def build_fact_check_context(saju_data: dict) -> str:
+    """P0: 원국 팩트 체크 블록 생성 - 없는 십성 언급 금지"""
+    if not saju_data:
+        return ""
+    
+    pillars = "".join([
+        saju_data.get("year_pillar", ""),
+        saju_data.get("month_pillar", ""),
+        saju_data.get("day_pillar", ""),
+        saju_data.get("hour_pillar", ""),
+    ])
+    
+    has_water = any(ch in pillars for ch in ["임", "계", "해", "자"])
+    has_earth = any(ch in pillars for ch in ["무", "기", "진", "술", "축", "미"])
+    has_wood = any(ch in pillars for ch in ["갑", "을", "인", "묘"])
+    has_fire = any(ch in pillars for ch in ["병", "정", "사", "오"])
+    has_metal = any(ch in pillars for ch in ["경", "신", "신", "유"])
+    
+    current_daeun = saju_data.get("current_daeun") or "미산출"
+    daeun_direction = saju_data.get("daeun_direction") or "미산출"
+    
+    return f"""
+## 원국 팩트 체크 (절대 준수)
+- 원국: {saju_data.get("year_pillar", "-")} {saju_data.get("month_pillar", "-")} {saju_data.get("day_pillar", "-")} {saju_data.get("hour_pillar", "-") or "미입력"}
+- 현재 대운: {current_daeun} (방향={daeun_direction})
+- 수 기운(임계해자): {"있음" if has_water else "없음"} -> 없으면 재성 단정 금지
+- 토 기운(무기진술축미): {"있음" if has_earth else "없음"}
+- 목 기운(갑을인묘): {"있음" if has_wood else "없음"}
+- 화 기운(병정사오): {"있음" if has_fire else "없음"}
+- 금 기운(경신신유): {"있음" if has_metal else "없음"}
+
+### 금지 규칙
+1. 원국에 없는 오행/십성을 있다고 말하지 마라
+2. 대운에서 들어오는 기운은 대운에서 ~가 들어온다로 명시
+"""
+
+def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
     spec = PREMIUM_SECTIONS.get(section_id)
     if not spec:
         logger.error(f"[Builder] Invalid section_id: {section_id}")
@@ -268,9 +306,14 @@ def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict
     existing_block = ""
     if existing_contents:
         existing_block = f"\n## 이전 섹션 (반복 금지)\n{chr(10).join(existing_contents[-2:])}\n"
+    
+    # 🔥 P0: 원국 팩트 체크 블록 추가
+    fact_ctx = build_fact_check_context(saju_data or {})
+    
     return f"""너는 [{title}] 전문 컨설턴트다.
 
 {ROOT_CAUSE_RULE}
+{fact_ctx}
 
 ## 첫 문장 (수정 금지)
 "{engine_headline}"
@@ -403,6 +446,7 @@ class PremiumReportBuilder:
             section_id=section_id,
             engine_headline=engine_headline or spec.fallback_headline,
             survey_data=survey_data,
+            saju_data=saju_data,  # 🔥 P0: 팩트체크용
             existing_contents=existing_contents,
             cards_summary=cards_summary
         )

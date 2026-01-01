@@ -33,6 +33,8 @@ class ReportStartRequest(BaseModel):
     question: str = ""
     concern_type: str = "career"
     survey_data: Optional[Dict[str, Any]] = None
+    gender: Optional[str] = None  # 🔥 P0: 성별 (female/male/여/남)
+    birth_info: Optional[Dict[str, Any]] = None  # 🔥 P0: 생년월일 정보
 
 
 def get_supabase():
@@ -209,7 +211,7 @@ async def debug_job(job_id: str):
 
 @router.post("/start")
 async def start_report(payload: ReportStartRequest, background_tasks: BackgroundTasks, request: Request):
-    input_data = {"name": payload.name, "question": payload.question, "concern_type": payload.concern_type, "target_year": payload.target_year, "survey_data": payload.survey_data, "saju_result": payload.saju_result, "year_pillar": payload.year_pillar, "month_pillar": payload.month_pillar, "day_pillar": payload.day_pillar, "hour_pillar": payload.hour_pillar}
+    input_data = {"name": payload.name, "question": payload.question, "concern_type": payload.concern_type, "target_year": payload.target_year, "survey_data": payload.survey_data, "saju_result": payload.saju_result, "year_pillar": payload.year_pillar, "month_pillar": payload.month_pillar, "day_pillar": payload.day_pillar, "hour_pillar": payload.hour_pillar, "gender": payload.gender, "birth_info": payload.birth_info}
     supabase = get_supabase()
     if supabase and supabase.is_available():
         try:
