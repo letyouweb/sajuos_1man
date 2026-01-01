@@ -141,7 +141,7 @@ def normalize_section(section: Dict) -> Dict:
     }
 
 
-def ensure_all_sections(sections_raw: List[Dict], job_id: str) -> List[Dict]:
+def ensure_all_sections(sections_raw: List[Dict], job_id: str, job_status: str = "running") -> List[Dict]:
     sections_by_backend_id = {}
     for s in sections_raw:
         bid = s.get("section_id") or s.get("id", "")
@@ -154,6 +154,9 @@ def ensure_all_sections(sections_raw: List[Dict], job_id: str) -> List[Dict]:
         backend_id = spec["backend_id"]
         s = sections_by_backend_id.get(backend_id)
         
+        is_completed = (job_status == "completed")
+        placeholder_status = "empty" if is_completed else "generating"
+
         if s:
             normalized = normalize_section(s)
             sections_normalized.append(normalized)
@@ -164,7 +167,7 @@ def ensure_all_sections(sections_raw: List[Dict], job_id: str) -> List[Dict]:
                 "backend_id": backend_id,
                 "title": spec["title"],
                 "icon": spec.get("icon", "📄"),
-                "status": "empty",
+                "status": placeholder_status,
                 "order": spec["order"],
                 "markdown": "⏳ 이 섹션은 현재 생성 중이거나 저장에 실패했습니다.\n\n잠시 후 다시 시도해주세요.",
                 "content": "",
@@ -173,7 +176,10 @@ def ensure_all_sections(sections_raw: List[Dict], job_id: str) -> List[Dict]:
                 "char_count": 0,
                 "error": "SECTION_MISSING",
             })
-            logger.warning(f"[Reports] 탭 강제 생성: {frontend_id} | job={job_id}")
+            if is_completed:
+                logger.warning(f"[Reports] 섹션 누락(완료 상태): {frontend_id} | job={job_id}")
+            else:
+                logger.info(f"[Reports] 섹션 생성중 placeholder: {frontend_id} | job={job_id}")
     
     sections_normalized.sort(key=lambda x: x.get("order", 99))
     return sections_normalized
@@ -258,8 +264,8 @@ async def view_report(job_id: str, token: str = Query(..., description="Access t
         raise HTTPException(status_code=404, detail="Invalid token or job not found")
     sections_raw = await supabase.get_sections_ordered(job_id)
     sections_raw = [s for s in sections_raw if s.get("job_id") == job_id]
-    sections_normalized = ensure_all_sections(sections_raw, job_id)
-    job_status = job.get("status")
+    job_status = job.get("status") or "running"
+    sections_normalized = ensure_all_sections(sections_raw, job_id, job_status)
     db_section_count = len([s for s in sections_raw if s.get("section_id")])
     if job_status == "completed" and db_section_count == 0:
         logger.error(f"[Reports] COMPLETED인데 DB 섹션 0개: {job_id}")

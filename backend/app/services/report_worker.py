@@ -551,17 +551,25 @@ class ReportWorker:
         
         day_master_element = saju_result.get("day_master_element", "")
         day_master_description = saju_result.get("day_master_description", "")
-        birth_info = saju_result.get("birth_info", {})
+
+        # ✅ P0 PATCH: birth_info를 saju_result 우선 + input_json.birth_info 보강 (age=0 방지)
+        birth_info = (
+            saju_result.get("birth_info")
+            or input_json.get("birth_info")
+            or {}
+        )
         if isinstance(birth_info, str):
             birth_info = {}
         
         # 🔥 P0: 대운 계산 (서버 확정값)
         survey_data = input_json.get("survey_data") or {}
+
+        # ✅ P0 PATCH: gender normalize 입력 우선순위 보강
         gender = _normalize_gender(
-            input_json.get("gender") or 
-            birth_info.get("gender") or 
-            survey_data.get("gender") or 
-            saju_result.get("gender", "")
+            input_json.get("gender")
+            or (birth_info or {}).get("gender")
+            or (survey_data or {}).get("gender")
+            or saju_result.get("gender", "")
         )
         
         age = _calc_age(birth_info)
