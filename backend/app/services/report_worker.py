@@ -128,7 +128,7 @@ class ReportWorker:
             raise ValueError(f"Job 없음: {job_id}")
         
         email = job.get("user_email", "")
-        input_json = job.get("input_json") or {}
+        input_json = job.get("input_json") or job.get("input_data") or {}  # 🔥 P0 FIX: 호환성
         
         name = input_json.get("name", "고객")
         target_year = input_json.get("target_year", 2026)
@@ -192,7 +192,8 @@ class ReportWorker:
                     all_cards=all_cards,
                     section_id=section_id,
                     feature_tags=feature_tags,
-                    survey_data=survey_data
+                    survey_data=survey_data,
+                    saju_data=saju_data  # 🔥 P0 FIX: NameError 수정
                 )
                 
                 section_match_summaries[section_id] = match_summary
@@ -342,7 +343,8 @@ class ReportWorker:
         all_cards: List[Dict],
         section_id: str,
         feature_tags: List[str],
-        survey_data: Dict
+        survey_data: Dict,
+        saju_data: Dict  # 🔥 P0 FIX: NameError 수정
     ) -> tuple[List[Dict], Dict]:
         """
         🔥🔥🔥 P0 핵심: RuleCardScorer를 사용하여 설문 기반 카드 선택
@@ -716,7 +718,7 @@ class ReportWorker:
         
         try:
             from app.services.email_sender import email_sender
-            input_json = job.get("input_json") or {}
+            input_json = job.get("input_json") or job.get("input_data") or {}  # 🔥 P0 FIX: 호환성
             name = input_json.get("name", "고객")
             job_id = job.get("id", "")
             
