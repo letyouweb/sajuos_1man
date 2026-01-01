@@ -1,275 +1,662 @@
-﻿"""
-RuleCard Scorer v5 - P0 섹션 ID 정합 + 인터페이스 확정
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- 섹션 ID는 고정된 목록(ALLOWED_SECTION_IDS)만 허용
-- 카드 스코어링 인터페이스를 ReportWorker와 1:1로 맞춤
-- P0: 원국 기반 철벽 필터링 (원국에 없는 오행 카드 제외)
-- P0: 십성(원국/대운) 기반 철벽 필터링 (원국/대운에 없는 십성 카드 제외)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-
-from __future__ import annotations
-
+RuleCard Scorer v2 - P0 Pivot: 설문 5문항 가중치 + 스코어 트레이스
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔥 P0 핵심 변경:
+1. industry/painPoint/goal 설문 기반 가중치 추가
+2. 같은 사주라도 설문에 따라 선택 카드가 달라짐
+3. score_trace로 점수 breakdown 제공
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
+from typing import Dict, Any, List, Set, Tuple, Optional
+from dataclasses import dataclass, field
+from collections import defaultdict
+import random
 
 logger = logging.getLogger(__name__)
-
-
-class SectionCards(TypedDict):
-    """섹션별 선택 결과"""
-    section_id: str
-    cards: List[Dict[str, Any]]
-    match_summary: Dict[str, Any]
-
-
-# 허용되는 섹션 ID (P0 고정)
-ALLOWED_SECTION_IDS = {
-    "exec",
-    "money",
-    "business",
-    "team",
-    "health",
-    "calendar",
-    "sprint",
+# --- P0 Fact-Check helpers (no-hallucination) ---
+_STEM_INFO = {
+    "갑": ("wood", True), "을": ("wood", False),
+    "병": ("fire", True), "정": ("fire", False),
+    "무": ("earth", True), "기": ("earth", False),
+    "경": ("metal", True), "신": ("metal", False),
+    "임": ("water", True), "계": ("water", False),
 }
+_BRANCH_ELEMENT = {
+    "자":"water","축":"earth","인":"wood","묘":"wood","진":"earth","사":"fire","오":"fire","미":"earth",
+    "신":"metal","유":"metal","술":"earth","해":"water"
+}
+# Element generating/controlling cycle
+_GEN = {"wood":"fire","fire":"earth","earth":"metal","metal":"water","water":"wood"}
+_CTRL = {"wood":"earth","earth":"water","water":"fire","fire":"metal","metal":"wood"}
 
-# 오행 표준화 (원국에 포함 여부 체크)
-ELEMENT_CHARS = {
-    "wood": ["갑", "을", "인", "묘"],
-    "fire": ["병", "정", "사", "오"],
-    "earth": ["무", "기", "진", "술", "축", "미"],
-    "metal": ["경", "신", "신", "유"],
-    "water": ["임", "계", "해", "자"],
+def _pillar_to_stem_branch(p: str):
+    if not p or len(p) < 2:
+        return None, None
+    return p[0], p[1]
+
+def _compute_fact_flags(saju_data: dict) -> dict:
+    """Compute presence flags from pillars + daeun for strict filtering."""
+    saju_data = saju_data or {}
+    dm = (saju_data.get("day_master") or "").strip()
+    dm_el = _STEM_INFO.get(dm, (None, None))[0] if dm else None
+
+    pillars = [saju_data.get(k) for k in ("year_pillar","month_pillar","day_pillar","hour_pillar")]
+    stems=set(); branches=set(); elements=set()
+    for p in pillars:
+        if not p: 
+            continue
+        s,b = _pillar_to_stem_branch(str(p).strip())
+        if s: stems.add(s); 
+        if b: branches.add(b)
+        if s in _STEM_INFO: elements.add(_STEM_INFO[s][0])
+        if b in _BRANCH_ELEMENT: elements.add(_BRANCH_ELEMENT[b])
+
+    # daeun
+    current_daeun = (saju_data.get("current_daeun") or "").strip()
+    d_stem, d_branch = _pillar_to_stem_branch(current_daeun) if current_daeun else (None,None)
+    daeun_elements=set()
+    if d_stem in _STEM_INFO: daeun_elements.add(_STEM_INFO[d_stem][0])
+    if d_branch in _BRANCH_ELEMENT: daeun_elements.add(_BRANCH_ELEMENT[d_branch])
+
+    def rel_element(kind: str):
+        if not dm_el:
+            return None
+        if kind == "wealth":   # 내가 극(controls)하는 오행
+            return _CTRL.get(dm_el)
+        if kind == "output":   # 내가 생(creates)하는 오행
+            return _GEN.get(dm_el)
+        if kind == "resource": # 나를 생하는 오행
+            # inverse of GEN
+            inv = {v:k for k,v in _GEN.items()}
+            return inv.get(dm_el)
+        if kind == "power":    # 나를 극하는 오행
+            # inverse of CTRL
+            inv = {v:k for k,v in _CTRL.items()}
+            return inv.get(dm_el)
+        if kind == "peer":     # 나와 같은 오행
+            return dm_el
+        return None
+
+    wealth_el = rel_element("wealth")
+    output_el = rel_element("output")
+    resource_el = rel_element("resource")
+    power_el = rel_element("power")
+    peer_el = rel_element("peer")
+
+    flags = {
+        "day_master": dm,
+        "dm_element": dm_el,
+        "elements_present": elements,
+        "wealth_el": wealth_el,
+        "wealth_present": (wealth_el in elements) if wealth_el else None,
+        "wealth_in_daeun": (wealth_el in daeun_elements) if wealth_el else None,
+        "peer_present": (peer_el in elements) if peer_el else None,
+        "power_present": (power_el in elements) if power_el else None,
+        "output_present": (output_el in elements) if output_el else None,
+        "resource_present": (resource_el in elements) if resource_el else None,
+        "current_daeun": current_daeun,
+    }
+    return flags
+
+def _card_requires_flag(card_text: str):
+    ct = card_text
+    # map keywords -> required flag name
+    if any(k in ct for k in ["정재","편재","재성","재물","금전운","현금흐름"]):
+        return "wealth"
+    if any(k in ct for k in ["비견","겁재","비겁","동업","파트너갈등","형제"]):
+        return "peer"
+    if any(k in ct for k in ["정관","편관","관성","명예","규율","법","계약"]):
+        return "power"
+    if any(k in ct for k in ["식신","상관","식상","표현","영업","콘텐츠","마케팅"]):
+        return "output"
+    if any(k in ct for k in ["정인","편인","인성","공부","자격","문서","지원"]):
+        return "resource"
+    return None
+
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 1. 사업가형 핵심 태그 50 + 가중치
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BUSINESS_CORE_TAGS_50 = {
+    # ═══ 재물/금전 관련 (15개) ═══
+    "財星": 10, "正財": 9, "偏財": 9, "財庫": 10, "破財": 8,
+    "損財": 8, "財運": 10, "投資": 9, "收入": 8, "支出": 8,
+    "富貴": 9, "財多身弱": 7, "財旺身強": 9, "食神生財": 10, "劫財爭財": 6,
+    
+    # ═══ 사업/커리어 관련 (15개) ═══
+    "官星": 9, "正官": 8, "偏官": 8, "印星": 9, "正印": 8,
+    "偏印": 8, "食傷": 9, "食神": 8, "傷官": 8, "比劫": 7,
+    "比肩": 7, "劫財": 7, "創業": 10, "事業": 10, "轉職": 8,
+    
+    # ═══ 시기/타이밍 관련 (10개) ═══
+    "大運": 10, "流年": 10, "月運": 8, "吉時": 9, "凶時": 8,
+    "開業": 9, "動土": 7, "移徙": 7, "合作": 9, "貴人運": 10,
+    
+    # ═══ 건강/에너지 관련 (5개) ═══
+    "身强": 9, "身弱": 8, "健康": 8, "勞累": 7, "精神": 7,
+    
+    # ═══ 관계/네트워크 관련 (5개) ═══
+    "貴人": 10, "小人": 7, "人脈": 9, "合": 8, "沖": 8,
 }
 
 # 섹션별 가중 태그
-SECTION_WEIGHT_TAGS = {
-    "exec": ["전체운", "종합", "핵심", "요약", "일간", "성향", "대운"],
-    "money": ["정재", "편재", "재성", "재물", "현금", "매출", "투자", "손실"],
-    "business": ["정관", "편관", "사업", "창업", "경영", "리더십", "계약", "거래"],
-    "team": ["비겁", "비견", "겁재", "동업", "파트너", "직원", "관계", "협력"],
-    "health": ["건강", "에너지", "스트레스", "번아웃", "체력", "질병", "휴식", "관성"],
-    "calendar": ["월운", "시기", "계절", "타이밍", "길일", "흉일", "절기"],
-    "sprint": ["실행", "액션", "계획", "목표", "KPI", "마일스톤", "주간"],
+SECTION_TAG_WEIGHTS = {
+    "exec": {"大運": 2.0, "流年": 2.0, "吉時": 1.5, "貴人運": 1.5, "身强": 1.5, "身弱": 1.5, "財運": 1.5, "事業": 1.5},
+    "money": {"財星": 2.0, "正財": 2.0, "偏財": 2.0, "財庫": 2.0, "破財": 1.8, "損財": 1.8, "投資": 1.8, "收入": 1.8, "食神生財": 2.0, "財旺身強": 1.8, "財多身弱": 1.5},
+    "business": {"創業": 2.0, "事業": 2.0, "官星": 1.8, "食傷": 1.8, "傷官": 1.5, "食神": 1.5, "轉職": 1.5, "合作": 1.5},
+    "team": {"貴人": 2.0, "人脈": 2.0, "合": 1.8, "沖": 1.5, "小人": 1.5, "比劫": 1.5, "比肩": 1.5, "劫財": 1.5},
+    "health": {"身强": 2.0, "身弱": 2.0, "健康": 2.0, "勞累": 1.8, "精神": 1.8, "印星": 1.5, "正印": 1.5},
+    "calendar": {"月運": 2.0, "流年": 2.0, "吉時": 2.0, "凶時": 1.8, "開業": 1.5, "動土": 1.5, "移徙": 1.5, "合作": 1.5},
+    "sprint": {"吉時": 2.0, "開業": 2.0, "合作": 1.8, "貴人": 1.8, "財運": 1.5, "事業": 1.5, "轉職": 1.5},
 }
 
 
-def get_survey_tag_weights(survey_data: Optional[Dict] = None) -> Dict[str, float]:
-    """
-    설문 데이터를 기반으로 가중치 맵 생성
-    (현재는 최소 구현: 확장 가능)
-    """
-    if not survey_data:
-        return {}
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 2. 🔥 P0: 설문 기반 가중치 태그 매핑
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    weights: Dict[str, float] = {}
+# 업종 → 관련 태그 + 가중치
+INDUSTRY_TAG_WEIGHTS: Dict[str, Dict[str, float]] = {
+    # IT/테크
+    "it": {"創業": 2.0, "事業": 1.5, "食傷": 1.8, "傷官": 1.5, "印星": 1.3},
+    "saas": {"創業": 2.0, "事業": 1.5, "食傷": 1.8, "收入": 2.0, "傷官": 1.5},
+    "개발": {"創業": 1.5, "印星": 2.0, "食傷": 1.8, "傷官": 1.5},
+    "ai": {"創業": 2.0, "印星": 2.0, "食傷": 1.8, "傷官": 1.5},
+    "플랫폼": {"創業": 2.0, "事業": 2.0, "財運": 1.8, "合作": 1.5},
+    
+    # 커머스
+    "커머스": {"財星": 2.0, "正財": 2.0, "偏財": 1.8, "投資": 1.5, "收入": 2.0, "財庫": 1.5},
+    "쇼핑몰": {"財星": 2.0, "正財": 2.0, "偏財": 1.8, "投資": 1.5, "收入": 2.0},
+    "온라인": {"財星": 1.8, "正財": 1.8, "偏財": 1.5, "收入": 1.8},
+    
+    # 서비스
+    "컨설팅": {"官星": 2.0, "正官": 1.8, "人脈": 2.0, "貴人": 1.8, "印星": 1.5},
+    "교육": {"印星": 2.0, "正印": 2.0, "人脈": 1.5, "食神": 1.8},
+    "코칭": {"印星": 2.0, "人脈": 1.8, "食神": 1.5, "貴人": 1.5},
+    
+    # 요식업
+    "카페": {"財星": 1.8, "食神": 2.0, "收入": 1.5, "勞累": 1.5, "投資": 1.3},
+    "음식점": {"財星": 1.8, "食神": 2.0, "收入": 1.5, "勞累": 1.5},
+    "식당": {"財星": 1.8, "食神": 2.0, "收入": 1.5, "勞累": 1.5},
+    
+    # 콘텐츠
+    "콘텐츠": {"食傷": 2.0, "傷官": 2.0, "食神": 1.8, "創業": 1.5, "收入": 1.5},
+    "유튜브": {"食傷": 2.0, "傷官": 2.0, "人脈": 1.8, "創業": 1.5},
+    "크리에이터": {"食傷": 2.0, "傷官": 2.0, "人脈": 1.5},
+    
+    # 부동산/투자
+    "부동산": {"財星": 2.0, "正財": 2.0, "偏財": 2.0, "財庫": 2.0, "投資": 2.0},
+    "투자": {"偏財": 2.0, "財星": 2.0, "投資": 2.0, "財庫": 1.8, "大運": 1.5},
+}
 
-    # 예: concern_type 기반 가중치 부여
-    concern_type = (survey_data.get("concern_type") or "").lower()
-    if concern_type:
-        weights[concern_type] = 1.2
+# 병목 → 관련 태그 + 가중치
+PAINPOINT_TAG_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "lead": {"人脈": 2.5, "貴人": 2.0, "官星": 1.5, "食傷": 1.8, "傷官": 1.5, "合作": 1.5},
+    "conversion": {"財星": 2.0, "正財": 2.0, "食神生財": 2.5, "合作": 1.5, "吉時": 1.5},
+    "operations": {"印星": 2.0, "正印": 2.0, "官星": 1.5, "勞累": 1.8, "精神": 1.5},
+    "funding": {"財星": 2.5, "財庫": 2.5, "破財": 2.0, "損財": 1.8, "偏財": 1.5, "投資": 2.0},
+    "mental": {"身弱": 2.5, "勞累": 2.5, "精神": 2.0, "健康": 2.0, "印星": 1.5},
+    "direction": {"大運": 2.5, "流年": 2.0, "官星": 1.8, "印星": 1.5, "轉職": 2.0},
+}
 
-    # 예: direction / goal / channel 등을 확장 가능
-    for k, v in (survey_data.items() if isinstance(survey_data, dict) else []):
-        if isinstance(v, str) and v.strip():
-            weights[v.strip().lower()] = 1.1
-
-    return weights
-
-
-def get_present_elements(saju_data: Dict[str, Any]) -> Set[str]:
-    """
-    saju_data에서 원국 오행(wood/fire/earth/metal/water) 존재 여부 추출
-    - year/month/day/hour pillar의 한글 천간/지지 문자열로 존재 판정
-    """
-    if not saju_data:
-        return set()
-
-    pillars = " ".join([
-        saju_data.get("year_pillar", ""),
-        saju_data.get("month_pillar", ""),
-        saju_data.get("day_pillar", ""),
-        saju_data.get("hour_pillar", ""),
-    ])
-
-    present = set()
-    for element, chars in ELEMENT_CHARS.items():
-        if any(ch in pillars for ch in chars):
-            present.add(element)
-
-    return present
+# 목표 키워드 → 관련 태그 + 가중치
+GOAL_TAG_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "매출": {"財星": 2.5, "正財": 2.0, "財運": 2.0, "收入": 2.0, "食神生財": 2.0},
+    "수익": {"財星": 2.5, "正財": 2.0, "財運": 2.0, "收入": 2.0},
+    "돈": {"財星": 2.5, "偏財": 2.0, "財庫": 2.0, "財運": 2.0},
+    "월매출": {"財星": 2.5, "正財": 2.0, "財運": 2.0, "收入": 2.0, "月運": 1.5},
+    "확장": {"官星": 2.0, "事業": 2.0, "合作": 2.0, "投資": 1.8, "大運": 1.5},
+    "스케일": {"官星": 2.0, "事業": 2.0, "合作": 2.0, "投資": 1.8},
+    "성장": {"官星": 2.0, "事業": 2.0, "大運": 2.0, "流年": 1.5},
+    "팀": {"比劫": 2.0, "比肩": 2.0, "合作": 2.5, "人脈": 1.8, "官星": 1.5},
+    "채용": {"比劫": 2.0, "合作": 2.0, "人脈": 2.0, "官星": 1.5},
+    "브랜드": {"印星": 2.5, "正印": 2.0, "官星": 1.8, "食傷": 1.5},
+    "인지도": {"印星": 2.0, "官星": 2.0, "食傷": 1.8, "人脈": 1.5},
+    "자동화": {"印星": 2.5, "正印": 2.0, "食神": 1.8, "官星": 1.5},
+    "시스템": {"印星": 2.5, "正印": 2.0, "官星": 1.5},
+    "안정": {"正財": 2.5, "財庫": 2.0, "身强": 2.0, "印星": 1.5},
+    "워라밸": {"身强": 2.5, "健康": 2.0, "精神": 2.0, "印星": 1.5},
+}
 
 
-def should_exclude_card(card: dict, present_elements: Set[str]) -> bool:
-    """
-    원국에 없는 오행 관련 카드인지 확인
-    - 카드 텍스트/태그에 특정 오행 요소가 '강하게' 명시되어 있는데 원국에 그 오행이 없으면 제외
-    """
-    if not present_elements:
-        return False
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 3. 스코어링 결과 데이터 구조
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    # 카드에서 텍스트 추출
-    title = str(card.get("title") or "")
-    summary = str(card.get("summary") or "")
-    body = str(card.get("body") or "")
-    body_md = str(card.get("body_markdown") or "")
-    tags = " ".join(card.get("tags") or [])
-    txt = f"{title} {summary} {body} {body_md} {tags}"
+@dataclass
+class ScoreTrace:
+    """🔥 P0: 점수 breakdown (디버깅/투명성)"""
+    priority: float = 0.0
+    tag_match: float = 0.0
+    section_bonus: float = 0.0
+    feature_match: float = 0.0
+    industry_match: float = 0.0
+    pain_match: float = 0.0
+    goal_match: float = 0.0
+    diversity_bonus: float = 0.0
+    
+    @property
+    def total(self) -> float:
+        return (
+            self.priority + self.tag_match + self.section_bonus +
+            self.feature_match + self.industry_match + self.pain_match +
+            self.goal_match + self.diversity_bonus
+        )
+    
+    def to_dict(self) -> Dict[str, float]:
+        return {
+            "priority": round(self.priority, 2),
+            "tag_match": round(self.tag_match, 2),
+            "section_bonus": round(self.section_bonus, 2),
+            "feature_match": round(self.feature_match, 2),
+            "industry_match": round(self.industry_match, 2),
+            "pain_match": round(self.pain_match, 2),
+            "goal_match": round(self.goal_match, 2),
+            "diversity_bonus": round(self.diversity_bonus, 2),
+            "total": round(self.total, 2),
+        }
 
-    # 오행 키워드가 나오면 (원국에 없을 때) 제외
-    # (예: "수기운이 강하다", "금이 과다" 같은 내용)
-    # NOTE: 넓게 잡으면 과다 제외될 수 있어, 여기선 비교적 보수적으로 단어 포함만 체크
-    for element, chars in ELEMENT_CHARS.items():
-        if element in present_elements:
-            continue
-        if any(ch in txt for ch in chars):
-            return True
 
-    return False
+@dataclass
+class ScoredCard:
+    """점수가 매겨진 룰카드"""
+    card_id: str
+    topic: str
+    subtopic: str = ""
+    score: float = 0.0
+    matched_tags: List[str] = field(default_factory=list)
+    score_trace: ScoreTrace = field(default_factory=ScoreTrace)
+    
+    @property
+    def final_score(self) -> float:
+        return self.score_trace.total
 
+
+@dataclass 
+class SectionCards:
+    """섹션별 선택된 카드들"""
+    section_id: str
+    cards: List[ScoredCard]
+    total_cards: int
+    topic_distribution: Dict[str, int]
+    avg_score: float
+    # 🔥 P0: 디버깅용 match_summary
+    match_summary: Dict[str, Any] = field(default_factory=dict)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 4. 🔥 P0: 설문 기반 스코어링 엔진
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class RuleCardScorer:
-    """
-    RuleCard Scorer (P0 인터페이스)
-    """
-
+    """사업가형 태그 + 설문 기반 룰카드 스코어링"""
+    
+    def __init__(
+        self,
+        cards_per_section: int = 100,
+        min_diversity_ratio: float = 0.3,
+    ):
+        self.cards_per_section = cards_per_section
+        self.min_diversity_ratio = min_diversity_ratio
+    
     def score_cards_for_section(
         self,
         all_cards: List[Dict[str, Any]],
         section_id: str,
         feature_tags: List[str],
-        survey_data: Optional[Dict] = None,
-        existing_topics: Set[str] = None,
-        saju_data: Optional[Dict] = None  # 🔥 P0: 철벽 필터링용
+        survey_data: Optional[Dict[str, Any]] = None,
+        saju_data: Optional[Dict[str, Any]] = None,
+        existing_topics: Set[str] = None
     ) -> SectionCards:
         """
-        섹션별 카드 스코어링 (P0 인터페이스)
+        🔥 P0: 설문 가중치 반영 스코어링
+        
+        Args:
+            all_cards: 전체 룰카드
+            section_id: 섹션 ID
+            feature_tags: 사주 기반 FeatureTags
+            survey_data: 🔥 P0 설문 데이터 (industry, painPoint, goal 포함)
+            existing_topics: 다른 섹션에서 선택된 topic들
         """
-        # P0: 섹션 ID 검증
-        if section_id not in ALLOWED_SECTION_IDS:
-            logger.warning(f"[Scorer] Invalid section_id: {section_id} - using default scoring")
-
         existing_topics = existing_topics or set()
-
-        feature_set = set(feature_tags) if feature_tags else set()
-        survey_weights = get_survey_tag_weights(survey_data)
-        section_tags = set(SECTION_WEIGHT_TAGS.get(section_id, []))
-
-        # 🔥 P0: 십성(원국/대운) 기반 철벽 필터링
-        # - 카드 내용에 특정 십성이 명시되어 있는데, 원국(+현재대운)에 그 십성이 없으면 제외
-        TENGOD_KEYWORDS = ["비견", "겁재", "식신", "상관", "편재", "정재", "편관", "정관", "편인", "정인", "재성", "관성", "인성", "식상"]
-        allowed_tg: Set[str] = set()
-        if saju_data:
-            allowed_tg |= set(saju_data.get("ten_gods_present") or [])
-            allowed_tg |= set(saju_data.get("daeun_ten_gods") or [])
-
-        def _card_text(c: Dict[str, Any]) -> str:
-            # NOTE: 한글 키워드가 많아서 lower()는 의미 없지만, 영어 혼합 대비로만 사용
-            parts = [
-                str(c.get("title", "")),
-                str(c.get("summary", "")),
-                str(c.get("body", "")),
-                str(c.get("body_markdown", "")),
-                " ".join(c.get("tags") or []),
-            ]
-            return " ".join(parts)
-
-        def _disallowed_tengod(c: Dict[str, Any]) -> bool:
-            if not allowed_tg:
-                return False
-            txt = _card_text(c)
-            hits = [k for k in TENGOD_KEYWORDS if k in txt]
-            if not hits:
-                return False
-
-            # "재성"은 (정재/편재)로도 간주
-            if "재성" in hits:
-                hits += ["정재", "편재"]
-
-            for h in hits:
-                # 상위 개념 키워드는 패스 (원국 매칭이 애매)
-                if h in ["재성", "관성", "인성", "식상"]:
-                    continue
-                if h not in allowed_tg:
-                    return True
-            return False
-
-        # 🔥 P0: 원국 철벽 필터링
-        present_elements = get_present_elements(saju_data) if saju_data else set()
-        filtered_cards: List[Dict[str, Any]] = []
-        excluded_count = 0
-        excluded_tg_count = 0
-
+        survey_data = survey_data or {}
+        fact_flags = _compute_fact_flags(saju_data or {})
+        
+        # 섹션별 태그 가중치
+        section_weights = SECTION_TAG_WEIGHTS.get(section_id, {})
+        
+        # 🔥 P0: 설문 데이터 추출
+        industry = (survey_data.get("industry") or "").lower()
+        pain_point = survey_data.get("painPoint") or survey_data.get("primary_bottleneck") or ""
+        goal = (survey_data.get("goal") or survey_data.get("goal_detail") or "").lower()
+        
+        # 🔥 P0: 설문 기반 가중치 태그 수집
+        industry_weights = {}
+        for keyword, weights in INDUSTRY_TAG_WEIGHTS.items():
+            if keyword in industry:
+                for tag, weight in weights.items():
+                    industry_weights[tag] = max(industry_weights.get(tag, 0), weight)
+        
+        pain_weights = PAINPOINT_TAG_WEIGHTS.get(pain_point, {})
+        
+        goal_weights = {}
+        for keyword, weights in GOAL_TAG_WEIGHTS.items():
+            if keyword in goal:
+                for tag, weight in weights.items():
+                    goal_weights[tag] = max(goal_weights.get(tag, 0), weight)
+        
+        scored_cards: List[ScoredCard] = []
+        match_counts = {
+            "total": 0,
+            "industry_matched": 0,
+            "pain_matched": 0,
+            "goal_matched": 0,
+            "feature_matched": 0,
+            "section_matched": 0,
+        }
+        
         for card in all_cards:
-            if present_elements and should_exclude_card(card, present_elements):
-                excluded_count += 1
-                continue
-            if _disallowed_tengod(card):
-                excluded_tg_count += 1
-                continue
-            filtered_cards.append(card)
+            card_id = card.get("id", "")
+            topic = card.get("topic", "")
+            subtopic = card.get("subtopic", "")
+            card_tags = card.get("tags", [])
+            priority = card.get("priority", 0)
+            
+            if isinstance(card_tags, str):
+                card_tags = [card_tags]
+            
+            # P0 strict fact filter: do not score cards that contradict the user's pillars
+            card_text = " ".join([*(card_tags or []), str(card.get('title','')), str(card.get('content',''))])
+            req = _card_requires_flag(card_text)
+            if req == "wealth":
+                if fact_flags.get('wealth_present') is False and fact_flags.get('wealth_in_daeun') is False:
+                    continue  # 재성/재물 카드 차단 (원국+대운 모두 부재)
+            elif req == "peer":
+                if fact_flags.get('peer_present') is False:
+                    continue
+            elif req == "power":
+                if fact_flags.get('power_present') is False:
+                    continue
+            elif req == "output":
+                if fact_flags.get('output_present') is False:
+                    continue
+            elif req == "resource":
+                if fact_flags.get('resource_present') is False:
+                    continue
 
-        if excluded_count > 0:
-            logger.info(f"[Scorer] 🔥 철벽 필터: {excluded_count}장 제외 (원국에 없는 오행)")
-        if excluded_tg_count > 0:
-            logger.info(f"[Scorer] 🔥 철벽 필터: {excluded_tg_count}장 제외 (원국/대운에 없는 십성)")
-
-        scored_cards: List[Tuple[float, Dict[str, Any]]] = []
-
-        for card in filtered_cards:
-            score = 0.0
-
-            # 기본 점수: feature tag 매칭
-            card_tags = set(card.get("tags") or [])
-            common = feature_set & card_tags
-            if common:
-                score += 2.0 * len(common)
-
-            # 섹션 태그 가중
-            common_section = section_tags & card_tags
-            if common_section:
-                score += 1.5 * len(common_section)
-
-            # 설문 기반 가중 (간단)
-            for k, w in survey_weights.items():
-                if k and (k in (card.get("title") or "").lower() or k in (card.get("summary") or "").lower()):
-                    score += (w - 1.0) * 2.0
-
-            # 기존 토픽 중복 패널티
-            topic = (card.get("topic") or "").strip()
-            if topic and topic in existing_topics:
-                score -= 2.0
-
-            # 길이/품질 보정 (body_markdown 우선)
-            body_text = (card.get("body_markdown") or card.get("body") or "")
-            if isinstance(body_text, str) and len(body_text) > 400:
-                score += 0.4
-            if isinstance(body_text, str) and len(body_text) > 900:
-                score += 0.4
-
-            scored_cards.append((score, card))
-
-        # top_k 선별
-        scored_cards.sort(key=lambda x: x[0], reverse=True)
-        selected = [c for _, c in scored_cards[: max(1, min(120, len(scored_cards)))]]
-
-        # match_summary 생성
-        avg_score = round(sum(s for s, _ in scored_cards[: len(selected)]) / max(1, len(selected)), 2) if scored_cards else 0.0
+            trace = ScoreTrace()
+            matched_tags = []
+            
+            # 1. Priority 점수
+            trace.priority = float(priority) * 0.5
+            
+            # 2. 기본 비즈니스 태그 매칭
+            for tag in card_tags:
+                if tag in BUSINESS_CORE_TAGS_50:
+                    base_score = BUSINESS_CORE_TAGS_50[tag]
+                    
+                    # 섹션별 가중치 적용
+                    if tag in section_weights:
+                        base_score *= section_weights[tag]
+                        match_counts["section_matched"] += 1
+                    
+                    trace.tag_match += base_score
+                    matched_tags.append(tag)
+            
+            # 3. 🔥🔥🔥 P0 핵심: FeatureTags 매칭 (사주 기반) - 가중치 10배 폭등!
+            # 사주 원국과 맞지 않는 카드는 절대 1등이 될 수 없음
+            for ft in feature_tags:
+                if ft.lower() in [t.lower() for t in card_tags]:
+                    trace.feature_match += 50.0  # 🔥 5.0 → 50.0 (10배 증가)
+                    match_counts["feature_matched"] += 1
+            
+            # 4. 🔥 P0: 업종 가중치
+            for tag in card_tags:
+                if tag in industry_weights:
+                    bonus = industry_weights[tag] * 3.0  # 업종 매칭 보너스
+                    trace.industry_match += bonus
+                    if bonus > 0:
+                        match_counts["industry_matched"] += 1
+            
+            # 5. 🔥 P0: 병목 가중치
+            for tag in card_tags:
+                if tag in pain_weights:
+                    bonus = pain_weights[tag] * 3.0  # 병목 매칭 보너스
+                    trace.pain_match += bonus
+                    if bonus > 0:
+                        match_counts["pain_matched"] += 1
+            
+            # 6. 🔥 P0: 목표 가중치
+            for tag in card_tags:
+                if tag in goal_weights:
+                    bonus = goal_weights[tag] * 3.0  # 목표 매칭 보너스
+                    trace.goal_match += bonus
+                    if bonus > 0:
+                        match_counts["goal_matched"] += 1
+            
+            # 7. 다양성 보너스
+            if topic and topic not in existing_topics:
+                trace.diversity_bonus = 3.0
+            
+            match_counts["total"] += 1
+            
+            scored_cards.append(ScoredCard(
+                card_id=card_id,
+                topic=topic,
+                subtopic=subtopic,
+                score=trace.total,
+                matched_tags=matched_tags,
+                score_trace=trace
+            ))
+        
+        # 점수순 정렬
+        scored_cards.sort(key=lambda c: c.final_score, reverse=True)
+        
+        # 다양성 보장하면서 Top-N 선택
+        selected = self._select_with_diversity(scored_cards)
+        
+        # 통계 계산
+        topic_dist = defaultdict(int)
+        for card in selected:
+            topic_dist[card.topic] += 1
+        
+        avg_score = sum(c.score for c in selected) / len(selected) if selected else 0
+        
+        # 🔥 P0: match_summary 생성
         match_summary = {
-            "section": section_id,
-            "pool": len(all_cards),
-            "filtered_pool": len(filtered_cards),
-            "selected": len(selected),
-            "avg_score": avg_score,
-            "excluded_by_fact_check": excluded_count,
-            "excluded_by_tengod": excluded_tg_count,
-        }
-
-        logger.info(f"[Scorer] section={section_id} | pool={len(all_cards)} | selected={len(selected)} | avg_score={avg_score}")
-
-        return {
             "section_id": section_id,
-            "cards": selected,
-            "match_summary": match_summary,
+            "total_cards": len(all_cards),
+            "selected_cards": len(selected),
+            "survey_applied": bool(industry or pain_point or goal),
+            "industry": industry,
+            "painPoint": pain_point,
+            "goal": goal[:50] if goal else "",
+            "match_counts": match_counts,
+            "top_5_cards": [
+                {
+                    "id": c.card_id,
+                    "score": round(c.final_score, 2),
+                    "trace": c.score_trace.to_dict()
+                }
+                for c in selected[:5]
+            ]
         }
+        
+        logger.info(
+            f"[RuleCardScorer:{section_id}] "
+            f"Total={len(all_cards)} → Selected={len(selected)} | "
+            f"Survey: industry={bool(industry)}, pain={bool(pain_point)}, goal={bool(goal)} | "
+            f"AvgScore={avg_score:.1f}"
+        )
+        
+        return SectionCards(
+            section_id=section_id,
+            cards=selected,
+            total_cards=len(selected),
+            topic_distribution=dict(topic_dist),
+            avg_score=avg_score,
+            match_summary=match_summary
+        )
+    
+    def _get_topic_relevance(self, topic: str, section_id: str) -> float:
+        """Topic과 섹션 간 관련성 점수"""
+        section_topics = {
+            "exec": ["운세", "종합", "대운", "길흉", "총론"],
+            "money": ["재물", "재운", "금전", "투자", "재정"],
+            "business": ["사업", "직업", "커리어", "창업", "진로"],
+            "team": ["인간관계", "대인", "협력", "귀인", "소인"],
+            "health": ["건강", "체력", "에너지", "컨디션"],
+            "calendar": ["월운", "일진", "시기", "날짜"],
+            "sprint": ["실행", "계획", "액션", "단기"],
+        }
+        
+        relevant_topics = section_topics.get(section_id, [])
+        for rel_topic in relevant_topics:
+            if rel_topic in topic:
+                return 5.0
+        return 0.0
+    
+    def _select_with_diversity(self, scored_cards: List[ScoredCard]) -> List[ScoredCard]:
+        """다양성을 보장하면서 Top-N 선택"""
+        if not scored_cards:
+            return []
+        
+        target_count = min(self.cards_per_section, len(scored_cards))
+        top_half = int(target_count * 0.5)
+        
+        # 상위 50%는 점수순
+        selected = scored_cards[:top_half]
+        used_topics = {c.topic for c in selected}
+        
+        # 나머지는 다양성 고려
+        remaining = scored_cards[top_half:]
+        
+        by_topic: Dict[str, List[ScoredCard]] = defaultdict(list)
+        for card in remaining:
+            by_topic[card.topic].append(card)
+        
+        unused_topics = [t for t in by_topic.keys() if t not in used_topics]
+        used_topic_list = list(used_topics & set(by_topic.keys()))
+        topic_order = unused_topics + used_topic_list
+        
+        while len(selected) < target_count:
+            added_any = False
+            for topic in topic_order:
+                if len(selected) >= target_count:
+                    break
+                if by_topic[topic]:
+                    card = by_topic[topic].pop(0)
+                    selected.append(card)
+                    added_any = True
+            if not added_any:
+                break
+        
+        return selected
+    
+    def score_all_sections(
+        self,
+        all_cards: List[Dict[str, Any]],
+        feature_tags: List[str],
+        survey_data: Optional[Dict[str, Any]] = None,
+        section_ids: List[str] = None
+    ) -> Dict[str, SectionCards]:
+        """모든 섹션에 대해 스코어링"""
+        if section_ids is None:
+            section_ids = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
+        
+        results = {}
+        used_topics: Set[str] = set()
+        
+        for section_id in section_ids:
+            section_cards = self.score_cards_for_section(
+                all_cards=all_cards,
+                section_id=section_id,
+                feature_tags=feature_tags,
+                survey_data=survey_data,
+                existing_topics=used_topics
+            )
+            results[section_id] = section_cards
+            used_topics.update(section_cards.topic_distribution.keys())
+        
+        return results
+    
+    def get_cards_for_prompt(
+        self,
+        section_cards: SectionCards,
+        max_chars: int = 8000
+    ) -> str:
+        """프롬프트에 주입할 룰카드 텍스트 생성"""
+        lines = [
+            f"=== {section_cards.section_id.upper()} 섹션 관련 RuleCards ({section_cards.total_cards}장) ===",
+            f"평균 관련도 점수: {section_cards.avg_score:.1f}",
+            f"Topic 분포: {dict(section_cards.topic_distribution)}",
+            "",
+        ]
+        
+        current_len = sum(len(l) for l in lines)
+        
+        for card in section_cards.cards:
+            card_text = f"[{card.card_id}] ({card.topic}/{card.subtopic}) 점수:{card.score:.1f} 태그:{','.join(card.matched_tags[:5])}"
+            
+            if current_len + len(card_text) > max_chars:
+                lines.append(f"... 외 {len(section_cards.cards) - len(lines) + 4}장 (문자 제한으로 생략)")
+                break
+            
+            lines.append(card_text)
+            current_len += len(card_text)
+        
+        return "\n".join(lines)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 5. 유틸리티 함수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def get_business_core_tags() -> Dict[str, int]:
+    """사업가형 핵심 태그 50 조회"""
+    return BUSINESS_CORE_TAGS_50.copy()
+
+
+def get_section_tag_weights(section_id: str) -> Dict[str, float]:
+    """섹션별 태그 가중치 조회"""
+    return SECTION_TAG_WEIGHTS.get(section_id, {}).copy()
+
+
+def get_survey_tag_weights(survey_data: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    """
+    🔥 P0: 설문 데이터에서 추출한 가중치 태그 조회
+    """
+    result = {
+        "industry_weights": {},
+        "pain_weights": {},
+        "goal_weights": {},
+    }
+    
+    industry = (survey_data.get("industry") or "").lower()
+    pain_point = survey_data.get("painPoint") or survey_data.get("primary_bottleneck") or ""
+    goal = (survey_data.get("goal") or survey_data.get("goal_detail") or "").lower()
+    
+    for keyword, weights in INDUSTRY_TAG_WEIGHTS.items():
+        if keyword in industry:
+            for tag, weight in weights.items():
+                result["industry_weights"][tag] = max(
+                    result["industry_weights"].get(tag, 0), weight
+                )
+    
+    result["pain_weights"] = PAINPOINT_TAG_WEIGHTS.get(pain_point, {})
+    
+    for keyword, weights in GOAL_TAG_WEIGHTS.items():
+        if keyword in goal:
+            for tag, weight in weights.items():
+                result["goal_weights"][tag] = max(
+                    result["goal_weights"].get(tag, 0), weight
+                )
+    
+    return result
+
+
+# 싱글톤 인스턴스
+rulecard_scorer = RuleCardScorer()

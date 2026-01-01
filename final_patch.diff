@@ -1,0 +1,2423 @@
+diff --git a/app/routers/reports.py b/app/routers/reports.py
+index 0000000..1111111 100644
+--- a/app/routers/reports.py
++++ b/app/routers/reports.py
+@@ -1,0 +1,317 @@
++"""
++Reports API Router v14 - P0: section_id 매핑 + 탭 강제 + markdown 추출 우선순위 + 비정상 completed 강등
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++🔥 P0 핵심: 백엔드 ID → 프론트 ID 매핑
++- exec → business_climate
++- money → cashflow
++- business → market_product
++- team → team_partnership
++- health → owner_risk
++- calendar → sprint_12m
++- sprint → action_90d
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++"""
++
++from __future__ import annotations
++
++import logging
++import uuid
++from typing import Any, Dict, List, Optional, Tuple
++
++from fastapi import APIRouter, HTTPException, Query
++from pydantic import BaseModel, EmailStr
++
++logger = logging.getLogger(__name__)
++router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# P0: 섹션 매핑
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++BACKEND_TO_FRONTEND = {
++    "exec": "business_climate",
++    "money": "cashflow",
++    "business": "market_product",
++    "team": "team_partnership",
++    "health": "owner_risk",
++    "calendar": "sprint_12m",
++    "sprint": "action_90d",
++}
++
++FRONTEND_TABS_ORDER = [
++    "business_climate",
++    "cashflow",
++    "market_product",
++    "team_partnership",
++    "owner_risk",
++    "sprint_12m",
++    "action_90d",
++]
++
++
++def map_to_frontend_id(section_id: str) -> str:
++    if not section_id:
++        return ""
++    sid = str(section_id).strip()
++    return BACKEND_TO_FRONTEND.get(sid, sid)
++
++
++def extract_markdown_from_section(section: Dict[str, Any]) -> str:
++    """P0: 섹션 markdown 추출 (DB 컬럼/하위호환 모두 지원)"""
++    # 0) DB canonical (최우선)
++    if section.get("body_markdown"):
++        return section["body_markdown"]
++    # 1) 기존 markdown 컬럼
++    if section.get("markdown"):
++        return section["markdown"]
++    # 2) content 컬럼
++    if section.get("content"):
++        return section["content"]
++    # 3) raw_json에서 추출
++    raw_json = section.get("raw_json") or {}
++    if raw_json.get("body_markdown"):
++        return raw_json["body_markdown"]
++    if raw_json.get("markdown"):
++        return raw_json["markdown"]
++    if raw_json.get("content"):
++        return raw_json["content"]
++    return ""
++
++
++def normalize_section(section: Dict[str, Any]) -> Dict[str, Any]:
++    backend_id = section.get("section_id") or section.get("id", "") or ""
++    frontend_id = map_to_frontend_id(backend_id)
++    raw_json = section.get("raw_json") or {}
++    markdown = extract_markdown_from_section(section)
++
++    status = section.get("status") or raw_json.get("status") or "unknown"
++
++    return {
++        "section_id": frontend_id,
++        "id": frontend_id,  # 프론트 호환
++        "backend_id": backend_id,
++        "status": status,
++        "title": section.get("title") or raw_json.get("title") or "",
++        "markdown": markdown or "",
++        "raw_json": raw_json,
++        "created_at": section.get("created_at") or raw_json.get("created_at"),
++        "updated_at": section.get("updated_at") or raw_json.get("updated_at"),
++    }
++
++
++def ensure_all_sections(sections_raw: List[Dict[str, Any]], job_id: str, job_status: str = "") -> List[Dict[str, Any]]:
++    by_front_id: Dict[str, Dict[str, Any]] = {}
++    for s in sections_raw or []:
++        ns = normalize_section(s)
++        if ns.get("section_id"):
++            by_front_id[ns["section_id"]] = ns
++
++    # 탭 강제 생성: 없으면 placeholder
++    out: List[Dict[str, Any]] = []
++    for tab_id in FRONTEND_TABS_ORDER:
++        if tab_id in by_front_id:
++            out.append(by_front_id[tab_id])
++            continue
++        logger.info(f"[Reports] 섹션 생성중 placeholder: {tab_id} | job={job_id}")
++        out.append(
++            {
++                "section_id": tab_id,
++                "id": tab_id,
++                "backend_id": "",
++                "status": "running" if job_status not in ("failed", "completed") else job_status,
++                "title": "",
++                "markdown": "",
++                "raw_json": {"placeholder": True, "job_id": job_id, "section_id": tab_id},
++                "created_at": None,
++                "updated_at": None,
++            }
++        )
++    return out
++
++
++def build_full_markdown(sections_normalized: List[Dict[str, Any]], name: str, target_year: int) -> str:
++    parts = [f"# {name}님의 {target_year} 비즈니스 리포트\n"]
++    for s in sections_normalized:
++        title = s.get("title") or s.get("section_id")
++        md = (s.get("markdown") or "").strip()
++        if not md:
++            continue
++        parts.append(f"\n---\n\n## {title}\n\n{md}\n")
++    return "".join(parts).strip()
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# P0: Request 모델
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++class ReportStartRequest(BaseModel):
++    email: EmailStr
++    name: str = "고객"
++    saju_result: Optional[Dict[str, Any]] = None
++    year_pillar: Optional[str] = None
++    month_pillar: Optional[str] = None
++    day_pillar: Optional[str] = None
++    hour_pillar: Optional[str] = None
++    target_year: int = 2026
++    question: str = ""
++    concern_type: str = "career"
++    survey_data: Optional[Dict[str, Any]] = None
++
++    # 🔥 P0: 성별/생년월일 정보 전달
++    gender: Optional[str] = None  # female/male/여/남 등
++    birth_info: Optional[Dict[str, Any]] = None  # {year,month,day,hour,minute,...}
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# Supabase 연결 (프로젝트 코드의 서비스에 맞춰 구현되어 있어야 함)
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++def get_supabase():
++    # 프로젝트 기존 코드와 동일한 방식으로 유지해야 함.
++    from app.services.supabase_service import SupabaseService
++
++    return SupabaseService()
++
++
++@router.post("/start")
++async def start_report(payload: ReportStartRequest):
++    supabase = get_supabase()
++    if not supabase or not supabase.is_available():
++        raise HTTPException(status_code=503, detail="Supabase 미연결")
++
++    # input_json을 워커로 전달 (report_worker가 input_json/input_data 모두 대응)
++    input_data = {
++        "name": payload.name,
++        "question": payload.question,
++        "concern_type": payload.concern_type,
++        "target_year": payload.target_year,
++        "survey_data": payload.survey_data,
++        "saju_result": payload.saju_result,
++        "year_pillar": payload.year_pillar,
++        "month_pillar": payload.month_pillar,
++        "day_pillar": payload.day_pillar,
++        "hour_pillar": payload.hour_pillar,
++        "gender": payload.gender,
++        "birth_info": payload.birth_info,
++        "email": str(payload.email),
++    }
++
++    job = await supabase.create_report_job(input_data=input_data)
++    if not job or not job.get("id"):
++        raise HTTPException(status_code=500, detail="Failed to create report job")
++
++    return {
++        "job_id": job["id"],
++        "public_token": job.get("public_token"),
++        "status": job.get("status", "queued"),
++    }
++
++
++@router.get("/view/{job_id}")
++async def view_report(job_id: str, token: str = Query(..., description="Access token")):
++    try:
++        uuid.UUID(job_id)
++    except ValueError:
++        raise HTTPException(status_code=400, detail=f"Invalid job_id: {job_id}")
++
++    supabase = get_supabase()
++    if not supabase or not supabase.is_available():
++        raise HTTPException(status_code=503, detail="Supabase 미연결")
++
++    is_valid, job = await supabase.verify_job_token(job_id, token)
++    if not is_valid or not job:
++        raise HTTPException(status_code=404, detail="Invalid token or job not found")
++
++    sections_raw = await supabase.get_sections_ordered(job_id)
++    sections_raw = [s for s in (sections_raw or []) if s.get("job_id") == job_id]
++
++    job_status = job.get("status", "")
++    sections_normalized = ensure_all_sections(sections_raw, job_id, job_status=job_status)
++
++    db_section_count = len([s for s in sections_raw if s.get("section_id")])
++    if job_status == "completed" and db_section_count == 0:
++        logger.error(f"[Reports] COMPLETED인데 DB 섹션 0개: {job_id}")
++
++    # P0: completed인데 빈 섹션이 섞이면(placeholder/저장 실패) completed로 보여주지 않음
++    display_status = job_status
++    display_error = job.get("error")
++    if job_status == "completed":
++        empty_sections = [
++            s.get("section_id")
++            for s in sections_normalized
++            if len((s.get("markdown") or "").strip()) < 100
++        ]
++        if empty_sections:
++            display_status = "failed"
++            display_error = f"EMPTY_SECTIONS: {empty_sections}"
++            logger.error(f"[Reports] 비정상 완료 리포트 강등 처리: {job_id} | {display_error}")
++
++    input_json = job.get("input_json") or {}
++    name = input_json.get("name", "고객")
++    target_year = input_json.get("target_year", 2026)
++    full_markdown = build_full_markdown(sections_normalized, name, target_year)
++
++    logger.info(f"[Reports] view_report: {job_id} | db_sections={db_section_count} | total_tabs=7")
++
++    return {
++        "job": {
++            "id": job.get("id", job_id),
++            "status": display_status,
++            "progress": job.get("progress", 0),
++            "error": display_error,
++            "created_at": job.get("created_at"),
++            "completed_at": job.get("completed_at"),
++        },
++        "sections": sections_normalized,
++        "full_markdown": full_markdown,
++        "section_count": len(FRONTEND_TABS_ORDER),
++    }
++
++
++@router.get("/verify/{job_id}")
++async def verify_token(job_id: str, token: str = Query(...)):
++    try:
++        uuid.UUID(job_id)
++    except ValueError:
++        raise HTTPException(status_code=400, detail=f"Invalid job_id: {job_id}")
++
++    supabase = get_supabase()
++    if not supabase or not supabase.is_available():
++        raise HTTPException(status_code=503, detail="Supabase 미연결")
++
++    is_valid, job = await supabase.verify_job_token(job_id, token)
++    if not is_valid:
++        raise HTTPException(status_code=403, detail="Invalid token")
++
++    return {"valid": True, "job_id": job.get("id", job_id), "status": job.get("status")}
++
++
++@router.get("/{job_id}/status")
++async def get_report_status(job_id: str, token: Optional[str] = Query(None)):
++    """프론트 폴링용: job + 섹션 진행률"""
++    try:
++        uuid.UUID(job_id)
++    except ValueError:
++        raise HTTPException(status_code=400, detail=f"Invalid job_id: {job_id}")
++
++    supabase = get_supabase()
++    if not supabase or not supabase.is_available():
++        raise HTTPException(status_code=503, detail="Supabase 미연결")
++
++    job = await supabase.get_report_job(job_id, token=token)
++    if not job:
++        raise HTTPException(status_code=404, detail="Job not found")
++
++    sections_raw = await supabase.get_sections_ordered(job_id)
++    sections_raw = [s for s in (sections_raw or []) if s.get("job_id") == job_id]
++    sections_normalized = ensure_all_sections(sections_raw, job_id, job_status=job.get("status", ""))
++
++    completed = len([s for s in sections_normalized if (s.get("status") in ("completed", "done", "success")) and (s.get("markdown") or "").strip()])
++    progress = max(job.get("progress", 0), int((completed / len(FRONTEND_TABS_ORDER)) * 100))
++
++    return {
++        "job_id": job_id,
++        "status": job.get("status"),
++        "progress": progress,
++        "sections": [{"section_id": s["section_id"], "status": s.get("status")} for s in sections_normalized],
++    }
+
+diff --git a/app/services/report_worker.py b/app/services/report_worker.py
+index 0000000..1111111 100644
+--- a/app/services/report_worker.py
++++ b/app/services/report_worker.py
+@@ -1,0 +1,853 @@
++"""
++Report Worker v13 - P0 Pivot: 설문 기반 RuleCardScorer 통합
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++🔥 P0 핵심 변경:
++1) _select_rulecards() → RuleCardScorer.score_cards_for_section() 호출
++2) survey_data가 카드 선택에 직접 반영
++3) 같은 사주라도 설문에 따라 다른 카드가 선택됨
++4) 섹션별 score_trace 저장
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++"""
++import asyncio
++import logging
++import time
++from datetime import date
++from typing import Dict, Any, Optional, List
++
++from app.services.supabase_service import supabase_service
++from app.services.saju_engine import calc_daeun_pillars
++
++logger = logging.getLogger(__name__)
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 🔥 P0: 대운 계산 헬퍼 함수
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++def _year_stem_is_yang(stem_ko: str) -> bool:
++    """년간이 양간인지 확인 (갑병무경임)"""
++    return stem_ko in ["갑", "병", "무", "경", "임"]
++
++
++def _normalize_gender(g: str) -> str:
++    """성별 정규화"""
++    if not g:
++        return ""
++    g = str(g).strip().lower()
++    if g in ["female", "f", "여", "여자", "여성"]:
++        return "female"
++    if g in ["male", "m", "남", "남자", "남성"]:
++        return "male"
++    return g
++
++
++def _calc_age(birth_info: dict) -> int:
++    """생년월일로 만 나이 계산"""
++    if not birth_info:
++        return 0
++    y = birth_info.get("year")
++    m = birth_info.get("month", 1)
++    d = birth_info.get("day", 1)
++    if not y:
++        return 0
++    try:
++        today = date.today()
++        age = today.year - int(y)
++        if (today.month, today.day) < (int(m), int(d)):
++            age -= 1
++        return max(age, 0)
++    except:
++        return 0
++
++
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 🔥 P0: 원국 팩트(십성/오행) 확정 유틸
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++STEM_ELEM_POLAR = {
++    "갑": ("wood", "yang"), "을": ("wood", "yin"),
++    "병": ("fire", "yang"), "정": ("fire", "yin"),
++    "무": ("earth", "yang"), "기": ("earth", "yin"),
++    "경": ("metal", "yang"), "신": ("metal", "yin"),
++    "임": ("water", "yang"), "계": ("water", "yin"),
++}
++
++BRANCH_HIDDEN_STEMS = {
++    "자": ["임", "계"],
++    "축": ["기", "계", "신"],
++    "인": ["갑", "병", "무"],
++    "묘": ["을"],
++    "진": ["무", "을", "계"],
++    "사": ["병", "무", "경"],
++    "오": ["정", "기"],
++    "미": ["기", "정", "을"],
++    "신": ["경", "임", "무"],
++    "유": ["신"],
++    "술": ["무", "신", "정"],
++    "해": ["갑", "임"],
++}
++
++GENERATOR = {"wood": "fire", "fire": "earth", "earth": "metal", "metal": "water", "water": "wood"}
++CONTROLS = {"wood": "earth", "earth": "water", "water": "fire", "fire": "metal", "metal": "wood"}
++
++
++def _pillar_parts(p: str):
++    if not p or len(p) < 2:
++        return ("", "")
++    return (p[0], p[1])
++
++
++def _ten_god(day_stem: str, other_stem: str) -> str:
++    """일간 기준 십성 계산(천간/지장간 공용)"""
++    if not day_stem or not other_stem:
++        return ""
++    dm = STEM_ELEM_POLAR.get(day_stem)
++    ot = STEM_ELEM_POLAR.get(other_stem)
++    if not dm or not ot:
++        return ""
++    dm_elem, dm_pol = dm
++    ot_elem, ot_pol = ot
++
++    # 비겁(동일 오행)
++    if ot_elem == dm_elem:
++        return "비견" if ot_pol == dm_pol else "겁재"
++    # 식상(내가 생)
++    if GENERATOR[dm_elem] == ot_elem:
++        return "식신" if ot_pol == dm_pol else "상관"
++    # 재성(내가 극)
++    if CONTROLS[dm_elem] == ot_elem:
++        return "편재" if ot_pol == dm_pol else "정재"
++    # 관성(나를 극)
++    if CONTROLS[ot_elem] == dm_elem:
++        return "편관" if ot_pol == dm_pol else "정관"
++    # 인성(나를 생)
++    if GENERATOR[ot_elem] == dm_elem:
++        return "편인" if ot_pol == dm_pol else "정인"
++    return ""
++
++
++def _compute_fact_flags(saju_data: dict) -> dict:
++    """원국 4주(천간+지장간) 기준: 십성/오행/재성 유무 확정"""
++    yp = saju_data.get("year_pillar", "") or ""
++    mp = saju_data.get("month_pillar", "") or ""
++    dp = saju_data.get("day_pillar", "") or ""
++    hp = saju_data.get("hour_pillar", "") or ""
++    dm = saju_data.get("day_master", "") or ""
++
++    stems_all: List[str] = []
++    for p in [yp, mp, dp, hp]:
++        st, br = _pillar_parts(p)
++        if st:
++            stems_all.append(st)
++        if br and br in BRANCH_HIDDEN_STEMS:
++            stems_all.extend(BRANCH_HIDDEN_STEMS[br])
++
++    ten_gods: List[str] = []
++    elems: List[str] = []
++    for st in stems_all:
++        tg = _ten_god(dm, st)
++        if tg:
++            ten_gods.append(tg)
++        ep = STEM_ELEM_POLAR.get(st)
++        if ep:
++            elems.append(ep[0])
++
++    ten_gods_present = sorted(set(ten_gods))
++    elements_present = sorted(set(elems))
++    has_wealth_star = any(x in ten_gods_present for x in ["정재", "편재"])
++    has_robwealth = "겁재" in ten_gods_present
++
++    return {
++        "stems_all": stems_all,
++        "ten_gods_present": ten_gods_present,
++        "elements_present": elements_present,
++        "has_wealth_star": has_wealth_star,
++        "has_robwealth": has_robwealth,
++    }
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 🔥🔥🔥 P0: 1인 자영업자용 섹션 스펙 (새 ID 매핑)
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++ONEMAN_SECTION_SPECS = [
++    {"id": "exec", "title": "🌦️ 2026 비즈니스 전략 기상도", "order": 1},
++    {"id": "money", "title": "💰 자본 유동성 및 현금흐름 최적화", "order": 2},
++    {"id": "business", "title": "📍 시장 포지셔닝 및 상품 확장 전략", "order": 3},
++    {"id": "team", "title": "🤝 조직 확장 및 파트너십 가이드", "order": 4},
++    {"id": "health", "title": "🧯 오너 리스크 관리 및 번아웃 방어", "order": 5},
++    {"id": "calendar", "title": "🗓️ 12개월 비즈니스 스프린트 캘린더", "order": 6},
++    {"id": "sprint", "title": "🚀 향후 90일 매출 극대화 액션플랜", "order": 7},
++]
++
++
++class ReportWorker:
++    """백그라운드 리포트 생성 워커 - P0 Pivot"""
++    
++    _running_jobs: set = set()
++    
++    async def run_job(self, job_id: str, rulestore: Any = None) -> None:
++        """Job 실행"""
++        if job_id in self._running_jobs:
++            logger.warning(f"[Worker] 이미 실행 중: {job_id}")
++            return
++        
++        self._running_jobs.add(job_id)
++        start_time = time.time()
++        
++        if rulestore:
++            card_count = len(getattr(rulestore, 'cards', [])) if hasattr(rulestore, 'cards') else 0
++            logger.info(f"[Worker] RuleStore 수신: total={card_count}장")
++        else:
++            logger.warning(f"[Worker] ⚠️ RuleStore가 None!")
++        
++        try:
++            success, error_msg = await self._execute_job(job_id, rulestore)
++            elapsed = int((time.time() - start_time) * 1000)
++            
++            if success:
++                logger.info(f"[Worker] ✅ Job 완료: {job_id} ({elapsed}ms)")
++            else:
++                logger.error(f"[Worker] ❌ Job 실패: {job_id} | {error_msg}")
++            
++        except Exception as e:
++            logger.error(f"[Worker] ❌ Job 실패: {job_id} | {e}")
++            try:
++                await supabase_service.fail_job(job_id, str(e)[:500])
++            except:
++                pass
++            
++            try:
++                job = await supabase_service.get_job(job_id)
++                if job:
++                    await self._send_failure_email(job, str(e))
++            except Exception as email_err:
++                logger.warning(f"[Worker] 실패 이메일 발송 실패: {email_err}")
++        
++        finally:
++            self._running_jobs.discard(job_id)
++    
++    async def _execute_job(self, job_id: str, rulestore: Any = None) -> tuple[bool, str]:
++        """실제 Job 실행"""
++        job = await supabase_service.get_job(job_id)
++        if not job:
++            raise ValueError(f"Job 없음: {job_id}")
++        
++        email = job.get("user_email", "")
++        input_json = job.get("input_json") or {}
++        
++        name = input_json.get("name", "고객")
++        target_year = input_json.get("target_year", 2026)
++        question = input_json.get("question", "")
++        survey_data = input_json.get("survey_data") or {}
++        
++        await supabase_service.update_progress(job_id, 5, "running")
++        
++        # 🔥 P0: 사주 데이터 추출
++        saju_data = self._prepare_saju_data(input_json)
++        
++        # 🔥🔥🔥 P0 핵심: 사주 데이터 무결성 체크 - 비어있으면 에러!
++        missing_pillars = []
++        for key in ["year_pillar", "month_pillar", "day_pillar"]:
++            if not saju_data.get(key):
++                missing_pillars.append(key)
++        
++        if missing_pillars:
++            error_msg = f"사주 데이터 누락: {missing_pillars}. 사주 없는 사주 리포트는 상품 가치가 없습니다."
++            logger.error(f"[Worker] ❌❌❌ {error_msg}")
++            logger.error(f"[Worker] input_json keys: {list(input_json.keys())}")
++            logger.error(f"[Worker] saju_result: {str(input_json.get('saju_result', {}))[:200] if input_json.get('saju_result') else 'None'}")
++            
++            # 🔥 P0: 사주 데이터 없으면 즉시 실패 처리
++            await supabase_service.fail_job(job_id, error_msg)
++            return False, error_msg
++        
++        logger.info(f"[Worker] ✅ 사주 검증 통과: {saju_data['year_pillar']}/{saju_data['month_pillar']}/{saju_data['day_pillar']}/{saju_data.get('hour_pillar', '-')}")
++        logger.info(f"[Worker] ✅ 일간: {saju_data.get('day_master', '-')} ({saju_data.get('day_master_element', '-')})")
++        logger.info(f"[Worker] ✅ 생년월일시: {saju_data.get('birth_info', '-')}")
++        
++        # 🔥 P0: Feature Tags 생성
++        feature_tags = self._build_feature_tags(saju_data)
++        
++        # 🔥🔥🔥 P0 핵심: RuleCardScorer로 설문 기반 카드 선택
++        all_cards = self._get_all_cards_as_dict(rulestore)
++        
++        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
++        logger.info(f"🔥 [Worker] 설문 기반 RuleCard 스코어링 시작")
++        logger.info(f"   survey_data: industry={survey_data.get('industry', '-')}, painPoint={survey_data.get('painPoint', '-')}, goal={survey_data.get('goal', '-')[:30] if survey_data.get('goal') else '-'}")
++        logger.info(f"   feature_tags: {len(feature_tags)}개")
++        logger.info(f"   전체 카드: {len(all_cards)}장")
++        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
++        
++        sections_result = {}
++        failed_sections = []
++        total_sections = len(ONEMAN_SECTION_SPECS)
++        all_used_card_ids = []
++        used_ids: set = set()
++        section_match_summaries = {}
++        
++        for idx, spec in enumerate(ONEMAN_SECTION_SPECS):
++            section_id = spec["id"]
++            section_title = spec["title"]
++            
++            progress = int((idx / total_sections) * 90) + 10
++            await supabase_service.update_progress(job_id, progress, "running")
++            
++            try:
++                # 🔥🔥🔥 P0 핵심: 섹션별로 RuleCardScorer 호출
++                section_cards, match_summary = self._select_rulecards_for_section(
++                    all_cards=all_cards,
++                    section_id=section_id,
++                    feature_tags=feature_tags,
++                    survey_data=survey_data,
++                    saju_data=saju_data,
++                    used_ids=used_ids,
++                )
++                
++                section_match_summaries[section_id] = match_summary
++                
++                # 사용된 카드 ID 수집
++                # 중복 방지용 set
++                for card in section_cards:
++                    if card.get('id'):
++                        used_ids.add(card['id'])
++                for card in section_cards[:10]:
++                    if card.get("id") and card["id"] not in all_used_card_ids:
++                        all_used_card_ids.append(card["id"])
++                
++                logger.info(f"[Worker:Section:{section_id}] 카드 선택 완료: {len(section_cards)}장 | AvgScore={match_summary.get('avg_score', 0):.1f}")
++                
++                # 섹션 생성
++                section_result = await self._generate_section(
++                    section_id=section_id,
++                    section_title=section_title,
++                    saju_data=saju_data,
++                    rulecards=section_cards,
++                    feature_tags=feature_tags,
++                    target_year=target_year,
++                    question=question,
++                    survey_data=survey_data,
++                    match_summary=match_summary
++                )
++                
++                content = section_result.get("content", {})
++                ok = section_result.get("ok", True)
++                errors = section_result.get("guardrail_errors", [])
++                
++                body_markdown = content.get("body_markdown", "")
++                # 🔥 P0-C: 빈 섹션 저장 절대 금지 - 최소 300자 보장
++                if not body_markdown or len(body_markdown) < 300:
++                    logger.error(f"[Worker] ⚠️ 섹션 본문 부족: {section_id} | length={len(body_markdown)}")
++                    # 에러 텍스트로 채우기
++                    fallback_text = f"""## {section_title}
++
++이 섹션의 분석 결과를 생성하는 중 문제가 발생했습니다.
++
++### 임시 안내
++- 현재 사주 분석 엔진이 해당 섹션에 대한 충분한 데이터를 확보하지 못했습니다.
++- 잠시 후 다시 시도해 주시거나, 고객센터로 문의해 주세요.
++- 분석에 사용된 룰카드: {len(section_cards)}장
++
++### 다음 단계
++1. 페이지를 새로고침해 보세요
++2. 문제가 지속되면 support@sajuos.com으로 연락해 주세요
++3. 곧 정상적인 분석 결과로 업데이트됩니다
++
++---
++*이 메시지는 자동 생성되었습니다. 오류 코드: SECTION_EMPTY_{section_id}*
++"""
++                    content["body_markdown"] = fallback_text
++                    body_markdown = fallback_text
++                
++                # 🔥 P0: match_summary도 content에 포함
++                content["match_summary"] = match_summary
++                content["used_rulecard_ids"] = [c.get("id") for c in section_cards[:10]]
++                
++                await supabase_service.save_section(
++                    job_id=job_id,
++                    section_id=section_id,
++                    content_json=content
++                )
++                
++                sections_result[section_id] = content
++                
++                logger.info(f"[Worker] 섹션 완료: {section_id} | {len(body_markdown)}자 | ok={ok}")
++                
++                if not ok:
++                    failed_sections.append({"section_id": section_id, "errors": errors})
++                
++            except Exception as e:
++                logger.error(f"[Worker] 섹션 실패: {section_id} | {e}")
++                failed_sections.append({
++                    "section_id": section_id,
++                    "errors": [f"Exception: {str(e)[:100]}"]
++                })
++        
++        # 결과 JSON 생성
++        result_json = {
++            "name": name,
++            "target_year": target_year,
++            "saju_summary": {
++                "year_pillar": saju_data.get("year_pillar", ""),
++                "month_pillar": saju_data.get("month_pillar", ""),
++                "day_pillar": saju_data.get("day_pillar", ""),
++                "hour_pillar": saju_data.get("hour_pillar", ""),
++                "day_master": saju_data.get("day_master", ""),
++                "birth_info": saju_data.get("birth_info", ""),
++            },
++            # 🔥 P0: 설문 데이터 저장
++            "survey_data": survey_data,
++            "sections": sections_result,
++            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
++            "failed_sections": failed_sections if failed_sections else None,
++            # 🔥 P0: 사용된 룰카드 ID (전체)
++            "top_used_rulecard_ids": all_used_card_ids[:20],
++            # 🔥 P0: 섹션별 match_summary
++            "section_match_summaries": section_match_summaries,
++        }
++        
++        saju_json = {
++            "year_pillar": saju_data.get("year_pillar", ""),
++            "month_pillar": saju_data.get("month_pillar", ""),
++            "day_pillar": saju_data.get("day_pillar", ""),
++            "hour_pillar": saju_data.get("hour_pillar", ""),
++            "day_master": saju_data.get("day_master", ""),
++            "day_master_element": saju_data.get("day_master_element", ""),
++            "day_master_description": saju_data.get("day_master_description", ""),
++            "birth_info": saju_data.get("birth_info", ""),
++            "feature_tags": feature_tags,
++            "rulecards_used": all_used_card_ids[:20],
++            "survey_data": survey_data,
++            "calculated_at": time.strftime("%Y-%m-%d %H:%M:%S")
++        }
++        
++        markdown = self._build_markdown(result_json, saju_data)
++        
++        await supabase_service.complete_job(job_id, result_json, markdown, saju_json)
++        
++        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
++        logger.info(f"✅ [Worker] Job 완료: {job_id}")
++        logger.info(f"   사주: {saju_json['year_pillar']}/{saju_json['month_pillar']}/{saju_json['day_pillar']}/{saju_json['hour_pillar']}")
++        logger.info(f"   설문: {survey_data.get('industry', '-')} / {survey_data.get('painPoint', '-')}")
++        logger.info(f"   사용 카드: {len(all_used_card_ids)}개")
++        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
++        
++        try:
++            await self._send_completion_email(email, name, job_id)
++        except Exception as e:
++            logger.warning(f"[Worker] 완료 이메일 실패: {e}")
++        
++        return True, ""
++    
++    def _get_all_cards_as_dict(self, rulestore: Any) -> List[Dict]:
++        """RuleStore에서 모든 카드를 dict 리스트로 추출"""
++        if not rulestore:
++            return []
++        
++        all_cards = getattr(rulestore, 'cards', [])
++        if not all_cards:
++            return []
++        
++        return [self._card_to_dict(c) for c in all_cards]
++    
++    def _select_rulecards_for_section(
++        self,
++        all_cards: List[Dict],
++        section_id: str,
++        feature_tags: List[str],
++        survey_data: Dict,
++        saju_data: Dict,
++        used_ids: set,
++    ) -> tuple[List[Dict], Dict]:
++        """
++        🔥🔥🔥 P0 핵심: RuleCardScorer를 사용하여 설문 기반 카드 선택
++        
++        Returns:
++            (선택된 카드 리스트, match_summary)
++        """
++        try:
++            from app.services.rulecard_scorer import rulecard_scorer
++            
++            # 🔥 P0: RuleCardScorer 호출 - survey_data 전달!
++            section_cards = rulecard_scorer.score_cards_for_section(
++                all_cards=all_cards,
++                section_id=section_id,
++                feature_tags=feature_tags,
++                survey_data=survey_data,
++                existing_topics=set(),
++                saju_data=saju_data  # 🔥 P0: 철벽 필터링용
++            )
++            
++            # SectionCards 객체에서 데이터 추출
++            selected_cards = []
++            for scored_card in section_cards.cards:
++                card_dict = {
++                    "id": scored_card.card_id,
++                    "topic": scored_card.topic,
++                    "subtopic": scored_card.subtopic,
++                    "score": scored_card.final_score,
++                    "matched_tags": scored_card.matched_tags,
++                    "score_trace": scored_card.score_trace.to_dict(),
++                }
++                # 원본 카드에서 추가 필드 복사
++                for orig_card in all_cards:
++                    if orig_card.get("id") == scored_card.card_id:
++                        card_dict["trigger"] = orig_card.get("trigger", "")
++                        card_dict["mechanism"] = orig_card.get("mechanism", "")
++                        card_dict["interpretation"] = orig_card.get("interpretation", "")
++                        card_dict["action"] = orig_card.get("action", "")
++                        card_dict["cautions"] = orig_card.get("cautions", [])
++                        card_dict["tags"] = orig_card.get("tags", [])
++                        break
++                selected_cards.append(card_dict)
++            
++            match_summary = section_cards.match_summary
++            match_summary["avg_score"] = section_cards.avg_score
++            match_summary["total_selected"] = section_cards.total_cards
++            
++            return selected_cards, match_summary
++            
++        except Exception as e:
++            logger.exception(f"[Worker] RuleCardScorer 호출 실패 - job FAILED로 처리: {e}")
++            # 🔥 P0: Fallback 금지, 즉시 raise
++            raise RuntimeError(f"RuleCardScorer 호출 실패: {e}") from e
++    
++    def _fallback_select_rulecards(self, all_cards: List[Dict], feature_tags: List[str]) -> tuple[List[Dict], Dict]:
++        """Fallback: RuleCardScorer 실패 시 단순 선택"""
++        if not all_cards:
++            return [], {"fallback": True, "reason": "no_cards"}
++        
++        if not feature_tags:
++            sorted_cards = sorted(all_cards, key=lambda c: c.get('priority', 0), reverse=True)
++            return sorted_cards[:50], {"fallback": True, "reason": "no_feature_tags"}
++        
++        matched = []
++        feature_set = set(t.lower() for t in feature_tags)
++        
++        for card in all_cards:
++            card_tags = card.get('tags', [])
++            card_tags_lower = set(t.lower() for t in card_tags)
++            if feature_set & card_tags_lower:
++                matched.append(card)
++        
++        if matched:
++            sorted_matched = sorted(matched, key=lambda c: c.get('priority', 0), reverse=True)
++            return sorted_matched[:50], {"fallback": True, "reason": "tag_match", "matched": len(matched)}
++        
++        sorted_cards = sorted(all_cards, key=lambda c: c.get('priority', 0), reverse=True)
++        return sorted_cards[:50], {"fallback": True, "reason": "priority_only"}
++    
++    async def _generate_section(
++        self,
++        section_id: str,
++        section_title: str,
++        saju_data: Dict,
++        rulecards: List,
++        feature_tags: List,
++        target_year: int,
++        question: str,
++        survey_data: Dict = None,
++        match_summary: Dict = None
++    ) -> Dict[str, Any]:
++        """섹션 생성 - survey_data 포함"""
++        try:
++            from app.services.report_builder import premium_report_builder
++            
++            logger.info(f"[Worker:Section:{section_id}] 생성 시작 | Cards={len(rulecards)}장 | Title={section_title}")
++            
++            result = await premium_report_builder.regenerate_single_section(
++                section_id=section_id,
++                saju_data=saju_data,
++                rulecards=rulecards,
++                feature_tags=feature_tags,
++                target_year=target_year,
++                user_question=question,
++                survey_data=survey_data  # 🔥 P0: survey_data 전달
++            )
++            
++            if not result.get("success"):
++                error_msg = result.get("error", "Unknown error")
++                logger.error(f"[Worker:Section:{section_id}] 생성 실패: {error_msg}")
++                return {
++                    "ok": False,
++                    "content": {"title": section_title, "body_markdown": "", "error": error_msg},
++                    "guardrail_errors": [error_msg]
++                }
++            
++            section_data = result.get("section", {})
++            body_markdown = section_data.get("body_markdown", "")
++            
++            if body_markdown:
++                logger.info(f"[Worker:Section:{section_id}] ✅ body_markdown={len(body_markdown)}자")
++            else:
++                logger.warning(f"[Worker:Section:{section_id}] ⚠️ body_markdown 비어있음!")
++            
++            content = {
++                "title": section_title,  # 🔥 P0: 1인 자영업자용 타이틀
++                "section_id": section_id,
++                "body_markdown": body_markdown,
++                "confidence": section_data.get("confidence", "MEDIUM"),
++                "diagnosis": section_data.get("diagnosis"),
++                "hypotheses": section_data.get("hypotheses"),
++                "strategy_options": section_data.get("strategy_options"),
++                "recommended_strategy": section_data.get("recommended_strategy"),
++                "kpis": section_data.get("kpis"),
++                "risks": section_data.get("risks"),
++                "annual_theme": section_data.get("annual_theme"),
++                "monthly_plans": section_data.get("monthly_plans"),
++                "quarterly_milestones": section_data.get("quarterly_milestones"),
++                "peak_months": section_data.get("peak_months"),
++                "risk_months": section_data.get("risk_months"),
++                "mission_statement": section_data.get("mission_statement"),
++                "phase_1_offer": section_data.get("phase_1_offer"),
++                "phase_2_funnel": section_data.get("phase_2_funnel"),
++                "phase_3_content": section_data.get("phase_3_content"),
++                "phase_4_automation": section_data.get("phase_4_automation"),
++                "milestones": section_data.get("milestones"),
++                "risk_scenarios": section_data.get("risk_scenarios"),
++            }
++            
++            return {
++                "ok": bool(body_markdown),
++                "content": content,
++                "guardrail_errors": [] if body_markdown else ["EMPTY_BODY_MARKDOWN"]
++            }
++            
++        except Exception as e:
++            logger.error(f"[Worker:Section:{section_id}] 예외: {e}")
++            return {
++                "ok": False,
++                "content": {"title": section_title, "body_markdown": "", "error": str(e)[:200]},
++                "guardrail_errors": [f"Exception: {str(e)[:100]}"]
++            }
++    
++    def _prepare_saju_data(self, input_json: Dict) -> Dict:
++        """사주 데이터 추출"""
++        saju_result = input_json.get("saju_result") or {}
++        
++        def extract_ganji(pillar_data):
++            if not pillar_data:
++                return ""
++            if isinstance(pillar_data, dict):
++                return pillar_data.get("ganji", "")
++            if isinstance(pillar_data, str):
++                return pillar_data
++            return ""
++        
++        year_pillar = extract_ganji(saju_result.get("year_pillar"))
++        month_pillar = extract_ganji(saju_result.get("month_pillar"))
++        day_pillar = extract_ganji(saju_result.get("day_pillar"))
++        hour_pillar = extract_ganji(saju_result.get("hour_pillar"))
++        
++        saju_nested = saju_result.get("saju") or {}
++        if not year_pillar and saju_nested:
++            year_pillar = extract_ganji(saju_nested.get("year_pillar"))
++        if not month_pillar and saju_nested:
++            month_pillar = extract_ganji(saju_nested.get("month_pillar"))
++        if not day_pillar and saju_nested:
++            day_pillar = extract_ganji(saju_nested.get("day_pillar"))
++        if not hour_pillar and saju_nested:
++            hour_pillar = extract_ganji(saju_nested.get("hour_pillar"))
++        
++        if not year_pillar:
++            year_pillar = input_json.get("year_pillar", "")
++        if not month_pillar:
++            month_pillar = input_json.get("month_pillar", "")
++        if not day_pillar:
++            day_pillar = input_json.get("day_pillar", "")
++        if not hour_pillar:
++            hour_pillar = input_json.get("hour_pillar", "")
++        
++        day_master = saju_result.get("day_master", "")
++        if not day_master and saju_nested:
++            day_master = saju_nested.get("day_master", "")
++        
++        day_master_element = saju_result.get("day_master_element", "")
++        day_master_description = saju_result.get("day_master_description", "")
++        birth_info = saju_result.get("birth_info", {})
++        if isinstance(birth_info, str):
++            birth_info = {}
++        
++        # 🔥 P0: 대운 계산 (서버 확정값)
++        survey_data = input_json.get("survey_data") or {}
++        gender = _normalize_gender(
++            input_json.get("gender") or 
++            birth_info.get("gender") or 
++            survey_data.get("gender") or 
++            saju_result.get("gender", "")
++        )
++        
++        age = _calc_age(birth_info)
++        if not age and birth_info.get("year"):
++            try:
++                age = date.today().year - int(birth_info.get("year"))
++            except:
++                age = 0
++        
++        year_stem = year_pillar[:1] if year_pillar else ""
++        
++        direction = None
++        daeun_list = []
++        current_daeun = None
++        
++        if gender and year_stem and month_pillar and age:
++            is_yang_year = _year_stem_is_yang(year_stem)
++            is_male = (gender == "male")
++            # 양남음녀=순행, 음남양녀=역행
++            direction = "forward" if ((is_male and is_yang_year) or ((not is_male) and (not is_yang_year))) else "backward"
++            daeun_list = calc_daeun_pillars(month_pillar, direction, count=10)
++            if daeun_list:
++                start_age = int((saju_result.get('daeun_start_age') or saju_result.get('daeun_start') or saju_result.get('daeun_num') or input_json.get('daeun_start_age') or 3))
++                if not (1 <= start_age <= 10):
++                    start_age = 3  # fallback
++
++                idx = (age - start_age) // 10
++                if 0 <= idx < len(daeun_list):
++                    current_daeun = daeun_list[idx]
++            
++            logger.info(f"[Worker] 🔥 대운 계산: gender={gender} | age={age} | direction={direction} | current_daeun={current_daeun}")
++        else:
++            logger.warning(f"[Worker] ⚠️ 대운 계산 불가: gender={gender} | year_stem={year_stem} | month_pillar={month_pillar} | age={age}")
++        
++        return {
++            "year_pillar": year_pillar,
++            "month_pillar": month_pillar,
++            "day_pillar": day_pillar,
++            "hour_pillar": hour_pillar,
++            "day_master": day_master,
++            "day_master_element": day_master_element,
++            "day_master_description": day_master_description,
++            "birth_info": birth_info,
++            "saju_result": saju_result,
++            # 🔥 P0: 대운 정보 추가
++            "gender": gender,
++            "age": age,
++            "daeun_direction": direction,
++            "daeun_list": daeun_list,
++            "current_daeun": current_daeun,
++        }
++    
++    def _build_feature_tags(self, saju_data: Dict) -> List[str]:
++        """Feature Tags 생성"""
++        tags = []
++        
++        for pillar_key in ["year_pillar", "month_pillar", "day_pillar", "hour_pillar"]:
++            pillar = saju_data.get(pillar_key, "")
++            if pillar and len(pillar) >= 2:
++                tags.append(f"천간:{pillar[0]}")
++                tags.append(f"지지:{pillar[1]}")
++        
++        if saju_data.get("day_master"):
++            tags.append(f"일간:{saju_data['day_master']}")
++        
++        return tags
++    
++    def _card_to_dict(self, card) -> Dict:
++        """RuleCard를 dict로 변환 (content dict fallback 포함)"""
++        content = getattr(card, 'content', {}) or {}
++        return {
++            "id": getattr(card, 'id', ''),
++            "topic": getattr(card, 'topic', ''),
++            "subtopic": getattr(card, 'subtopic', '') or (getattr(card, 'meta', {}) or {}).get('subtopic', ''),
++            "tags": getattr(card, 'tags', []),
++            "priority": getattr(card, 'priority', 0),
++            "trigger": getattr(card, 'trigger', ''),
++            "mechanism": getattr(card, 'mechanism', '') or content.get('mechanism', ''),
++            "interpretation": getattr(card, 'interpretation', '') or content.get('interpretation', ''),
++            "action": getattr(card, 'action', '') or content.get('action', ''),
++            "cautions": getattr(card, 'cautions', []) or content.get('cautions', []),
++        }
++    
++    def _build_markdown(self, result_json: Dict, saju_data: Dict) -> str:
++        """마크다운 생성"""
++        lines = []
++        
++        name = result_json.get('name', '고객')
++        target_year = result_json.get('target_year', 2026)
++        survey_data = result_json.get('survey_data', {})
++        
++        lines.append(f"# {name}님의 {target_year}년 1인 사업가 전략 리포트\n")
++        
++        # 설문 요약
++        if survey_data:
++            lines.append("## 📋 비즈니스 프로필\n")
++            lines.append(f"- 업종: {survey_data.get('industry', '-')}")
++            lines.append(f"- 월매출: {survey_data.get('revenue', '-')}")
++            lines.append(f"- 핵심 병목: {survey_data.get('painPoint', '-')}")
++            lines.append(f"- 2026 목표: {survey_data.get('goal', '-')}")
++            lines.append(f"- 주당 시간: {survey_data.get('time', '-')}")
++            lines.append("\n---\n")
++        
++        # 사주 요약
++        lines.append("## 📜 사주 원국\n")
++        lines.append(f"- 년주: {saju_data.get('year_pillar', '-')}")
++        lines.append(f"- 월주: {saju_data.get('month_pillar', '-')}")
++        lines.append(f"- 일주: {saju_data.get('day_pillar', '-')}")
++        lines.append(f"- 시주: {saju_data.get('hour_pillar', '-') or '미입력'}")
++        lines.append(f"- 일간: {saju_data.get('day_master', '-')} ({saju_data.get('day_master_element', '')})")
++        lines.append("\n---\n")
++        
++        # 섹션별 내용
++        sections = result_json.get("sections", {})
++        for spec in ONEMAN_SECTION_SPECS:
++            section = sections.get(spec["id"], {})
++            lines.append(f"## {spec['title']}\n")
++            body = section.get("body_markdown", "") or section.get("summary", "내용 없음")
++            lines.append(body)
++            lines.append("\n")
++        
++        return "\n".join(lines)
++    
++    async def _send_completion_email(self, email: str, name: str, job_id: str):
++        """완료 이메일"""
++        if not email:
++            return
++        
++        try:
++            from app.services.email_sender import email_sender
++            
++            job = await supabase_service.get_job(job_id)
++            if not job:
++                return
++            
++            access_token = job.get("public_token", "")
++            if not access_token:
++                logger.error(f"[Worker] ⚠️ public_token이 NULL! job_id={job_id}")
++                return
++            
++            await email_sender.send_report_complete(
++                to_email=email,
++                name=name,
++                report_id=job_id,
++                access_token=access_token,
++                target_year=2026
++            )
++            logger.info(f"[Worker] ✅ 완료 이메일 발송: {email}")
++        except Exception as e:
++            logger.warning(f"이메일 발송 실패: {e}")
++    
++    async def _send_failure_email(self, job: Dict, error: str):
++        """실패 이메일"""
++        email = job.get("user_email", "")
++        if not email:
++            return
++        
++        try:
++            from app.services.email_sender import email_sender
++            input_json = job.get("input_json") or {}
++            name = input_json.get("name", "고객")
++            job_id = job.get("id", "")
++            
++            await email_sender.send_report_failed(
++                to_email=email,
++                name=name,
++                report_id=job_id,
++                error_message=error[:200]
++            )
++            logger.info(f"[Worker] 실패 이메일 발송: {email}")
++        except Exception as e:
++            logger.warning(f"실패 이메일 발송 실패: {e}")
++
++
++report_worker = ReportWorker()
+
+diff --git a/app/services/rulecard_scorer.py b/app/services/rulecard_scorer.py
+index 0000000..1111111 100644
+--- a/app/services/rulecard_scorer.py
++++ b/app/services/rulecard_scorer.py
+@@ -1,0 +1,662 @@
++"""
++RuleCard Scorer v2 - P0 Pivot: 설문 5문항 가중치 + 스코어 트레이스
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++🔥 P0 핵심 변경:
++1. industry/painPoint/goal 설문 기반 가중치 추가
++2. 같은 사주라도 설문에 따라 선택 카드가 달라짐
++3. score_trace로 점수 breakdown 제공
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++"""
++import logging
++from typing import Dict, Any, List, Set, Tuple, Optional
++from dataclasses import dataclass, field
++from collections import defaultdict
++import random
++
++logger = logging.getLogger(__name__)
++# --- P0 Fact-Check helpers (no-hallucination) ---
++_STEM_INFO = {
++    "갑": ("wood", True), "을": ("wood", False),
++    "병": ("fire", True), "정": ("fire", False),
++    "무": ("earth", True), "기": ("earth", False),
++    "경": ("metal", True), "신": ("metal", False),
++    "임": ("water", True), "계": ("water", False),
++}
++_BRANCH_ELEMENT = {
++    "자":"water","축":"earth","인":"wood","묘":"wood","진":"earth","사":"fire","오":"fire","미":"earth",
++    "신":"metal","유":"metal","술":"earth","해":"water"
++}
++# Element generating/controlling cycle
++_GEN = {"wood":"fire","fire":"earth","earth":"metal","metal":"water","water":"wood"}
++_CTRL = {"wood":"earth","earth":"water","water":"fire","fire":"metal","metal":"wood"}
++
++def _pillar_to_stem_branch(p: str):
++    if not p or len(p) < 2:
++        return None, None
++    return p[0], p[1]
++
++def _compute_fact_flags(saju_data: dict) -> dict:
++    """Compute presence flags from pillars + daeun for strict filtering."""
++    saju_data = saju_data or {}
++    dm = (saju_data.get("day_master") or "").strip()
++    dm_el = _STEM_INFO.get(dm, (None, None))[0] if dm else None
++
++    pillars = [saju_data.get(k) for k in ("year_pillar","month_pillar","day_pillar","hour_pillar")]
++    stems=set(); branches=set(); elements=set()
++    for p in pillars:
++        if not p: 
++            continue
++        s,b = _pillar_to_stem_branch(str(p).strip())
++        if s: stems.add(s); 
++        if b: branches.add(b)
++        if s in _STEM_INFO: elements.add(_STEM_INFO[s][0])
++        if b in _BRANCH_ELEMENT: elements.add(_BRANCH_ELEMENT[b])
++
++    # daeun
++    current_daeun = (saju_data.get("current_daeun") or "").strip()
++    d_stem, d_branch = _pillar_to_stem_branch(current_daeun) if current_daeun else (None,None)
++    daeun_elements=set()
++    if d_stem in _STEM_INFO: daeun_elements.add(_STEM_INFO[d_stem][0])
++    if d_branch in _BRANCH_ELEMENT: daeun_elements.add(_BRANCH_ELEMENT[d_branch])
++
++    def rel_element(kind: str):
++        if not dm_el:
++            return None
++        if kind == "wealth":   # 내가 극(controls)하는 오행
++            return _CTRL.get(dm_el)
++        if kind == "output":   # 내가 생(creates)하는 오행
++            return _GEN.get(dm_el)
++        if kind == "resource": # 나를 생하는 오행
++            # inverse of GEN
++            inv = {v:k for k,v in _GEN.items()}
++            return inv.get(dm_el)
++        if kind == "power":    # 나를 극하는 오행
++            # inverse of CTRL
++            inv = {v:k for k,v in _CTRL.items()}
++            return inv.get(dm_el)
++        if kind == "peer":     # 나와 같은 오행
++            return dm_el
++        return None
++
++    wealth_el = rel_element("wealth")
++    output_el = rel_element("output")
++    resource_el = rel_element("resource")
++    power_el = rel_element("power")
++    peer_el = rel_element("peer")
++
++    flags = {
++        "day_master": dm,
++        "dm_element": dm_el,
++        "elements_present": elements,
++        "wealth_el": wealth_el,
++        "wealth_present": (wealth_el in elements) if wealth_el else None,
++        "wealth_in_daeun": (wealth_el in daeun_elements) if wealth_el else None,
++        "peer_present": (peer_el in elements) if peer_el else None,
++        "power_present": (power_el in elements) if power_el else None,
++        "output_present": (output_el in elements) if output_el else None,
++        "resource_present": (resource_el in elements) if resource_el else None,
++        "current_daeun": current_daeun,
++    }
++    return flags
++
++def _card_requires_flag(card_text: str):
++    ct = card_text
++    # map keywords -> required flag name
++    if any(k in ct for k in ["정재","편재","재성","재물","금전운","현금흐름"]):
++        return "wealth"
++    if any(k in ct for k in ["비견","겁재","비겁","동업","파트너갈등","형제"]):
++        return "peer"
++    if any(k in ct for k in ["정관","편관","관성","명예","규율","법","계약"]):
++        return "power"
++    if any(k in ct for k in ["식신","상관","식상","표현","영업","콘텐츠","마케팅"]):
++        return "output"
++    if any(k in ct for k in ["정인","편인","인성","공부","자격","문서","지원"]):
++        return "resource"
++    return None
++
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 1. 사업가형 핵심 태그 50 + 가중치
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++BUSINESS_CORE_TAGS_50 = {
++    # ═══ 재물/금전 관련 (15개) ═══
++    "財星": 10, "正財": 9, "偏財": 9, "財庫": 10, "破財": 8,
++    "損財": 8, "財運": 10, "投資": 9, "收入": 8, "支出": 8,
++    "富貴": 9, "財多身弱": 7, "財旺身強": 9, "食神生財": 10, "劫財爭財": 6,
++    
++    # ═══ 사업/커리어 관련 (15개) ═══
++    "官星": 9, "正官": 8, "偏官": 8, "印星": 9, "正印": 8,
++    "偏印": 8, "食傷": 9, "食神": 8, "傷官": 8, "比劫": 7,
++    "比肩": 7, "劫財": 7, "創業": 10, "事業": 10, "轉職": 8,
++    
++    # ═══ 시기/타이밍 관련 (10개) ═══
++    "大運": 10, "流年": 10, "月運": 8, "吉時": 9, "凶時": 8,
++    "開業": 9, "動土": 7, "移徙": 7, "合作": 9, "貴人運": 10,
++    
++    # ═══ 건강/에너지 관련 (5개) ═══
++    "身强": 9, "身弱": 8, "健康": 8, "勞累": 7, "精神": 7,
++    
++    # ═══ 관계/네트워크 관련 (5개) ═══
++    "貴人": 10, "小人": 7, "人脈": 9, "合": 8, "沖": 8,
++}
++
++# 섹션별 가중 태그
++SECTION_TAG_WEIGHTS = {
++    "exec": {"大運": 2.0, "流年": 2.0, "吉時": 1.5, "貴人運": 1.5, "身强": 1.5, "身弱": 1.5, "財運": 1.5, "事業": 1.5},
++    "money": {"財星": 2.0, "正財": 2.0, "偏財": 2.0, "財庫": 2.0, "破財": 1.8, "損財": 1.8, "投資": 1.8, "收入": 1.8, "食神生財": 2.0, "財旺身強": 1.8, "財多身弱": 1.5},
++    "business": {"創業": 2.0, "事業": 2.0, "官星": 1.8, "食傷": 1.8, "傷官": 1.5, "食神": 1.5, "轉職": 1.5, "合作": 1.5},
++    "team": {"貴人": 2.0, "人脈": 2.0, "合": 1.8, "沖": 1.5, "小人": 1.5, "比劫": 1.5, "比肩": 1.5, "劫財": 1.5},
++    "health": {"身强": 2.0, "身弱": 2.0, "健康": 2.0, "勞累": 1.8, "精神": 1.8, "印星": 1.5, "正印": 1.5},
++    "calendar": {"月運": 2.0, "流年": 2.0, "吉時": 2.0, "凶時": 1.8, "開業": 1.5, "動土": 1.5, "移徙": 1.5, "合作": 1.5},
++    "sprint": {"吉時": 2.0, "開業": 2.0, "合作": 1.8, "貴人": 1.8, "財運": 1.5, "事業": 1.5, "轉職": 1.5},
++}
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 2. 🔥 P0: 설문 기반 가중치 태그 매핑
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++# 업종 → 관련 태그 + 가중치
++INDUSTRY_TAG_WEIGHTS: Dict[str, Dict[str, float]] = {
++    # IT/테크
++    "it": {"創業": 2.0, "事業": 1.5, "食傷": 1.8, "傷官": 1.5, "印星": 1.3},
++    "saas": {"創業": 2.0, "事業": 1.5, "食傷": 1.8, "收入": 2.0, "傷官": 1.5},
++    "개발": {"創業": 1.5, "印星": 2.0, "食傷": 1.8, "傷官": 1.5},
++    "ai": {"創業": 2.0, "印星": 2.0, "食傷": 1.8, "傷官": 1.5},
++    "플랫폼": {"創業": 2.0, "事業": 2.0, "財運": 1.8, "合作": 1.5},
++    
++    # 커머스
++    "커머스": {"財星": 2.0, "正財": 2.0, "偏財": 1.8, "投資": 1.5, "收入": 2.0, "財庫": 1.5},
++    "쇼핑몰": {"財星": 2.0, "正財": 2.0, "偏財": 1.8, "投資": 1.5, "收入": 2.0},
++    "온라인": {"財星": 1.8, "正財": 1.8, "偏財": 1.5, "收入": 1.8},
++    
++    # 서비스
++    "컨설팅": {"官星": 2.0, "正官": 1.8, "人脈": 2.0, "貴人": 1.8, "印星": 1.5},
++    "교육": {"印星": 2.0, "正印": 2.0, "人脈": 1.5, "食神": 1.8},
++    "코칭": {"印星": 2.0, "人脈": 1.8, "食神": 1.5, "貴人": 1.5},
++    
++    # 요식업
++    "카페": {"財星": 1.8, "食神": 2.0, "收入": 1.5, "勞累": 1.5, "投資": 1.3},
++    "음식점": {"財星": 1.8, "食神": 2.0, "收入": 1.5, "勞累": 1.5},
++    "식당": {"財星": 1.8, "食神": 2.0, "收入": 1.5, "勞累": 1.5},
++    
++    # 콘텐츠
++    "콘텐츠": {"食傷": 2.0, "傷官": 2.0, "食神": 1.8, "創業": 1.5, "收入": 1.5},
++    "유튜브": {"食傷": 2.0, "傷官": 2.0, "人脈": 1.8, "創業": 1.5},
++    "크리에이터": {"食傷": 2.0, "傷官": 2.0, "人脈": 1.5},
++    
++    # 부동산/투자
++    "부동산": {"財星": 2.0, "正財": 2.0, "偏財": 2.0, "財庫": 2.0, "投資": 2.0},
++    "투자": {"偏財": 2.0, "財星": 2.0, "投資": 2.0, "財庫": 1.8, "大運": 1.5},
++}
++
++# 병목 → 관련 태그 + 가중치
++PAINPOINT_TAG_WEIGHTS: Dict[str, Dict[str, float]] = {
++    "lead": {"人脈": 2.5, "貴人": 2.0, "官星": 1.5, "食傷": 1.8, "傷官": 1.5, "合作": 1.5},
++    "conversion": {"財星": 2.0, "正財": 2.0, "食神生財": 2.5, "合作": 1.5, "吉時": 1.5},
++    "operations": {"印星": 2.0, "正印": 2.0, "官星": 1.5, "勞累": 1.8, "精神": 1.5},
++    "funding": {"財星": 2.5, "財庫": 2.5, "破財": 2.0, "損財": 1.8, "偏財": 1.5, "投資": 2.0},
++    "mental": {"身弱": 2.5, "勞累": 2.5, "精神": 2.0, "健康": 2.0, "印星": 1.5},
++    "direction": {"大運": 2.5, "流年": 2.0, "官星": 1.8, "印星": 1.5, "轉職": 2.0},
++}
++
++# 목표 키워드 → 관련 태그 + 가중치
++GOAL_TAG_WEIGHTS: Dict[str, Dict[str, float]] = {
++    "매출": {"財星": 2.5, "正財": 2.0, "財運": 2.0, "收入": 2.0, "食神生財": 2.0},
++    "수익": {"財星": 2.5, "正財": 2.0, "財運": 2.0, "收入": 2.0},
++    "돈": {"財星": 2.5, "偏財": 2.0, "財庫": 2.0, "財運": 2.0},
++    "월매출": {"財星": 2.5, "正財": 2.0, "財運": 2.0, "收入": 2.0, "月運": 1.5},
++    "확장": {"官星": 2.0, "事業": 2.0, "合作": 2.0, "投資": 1.8, "大運": 1.5},
++    "스케일": {"官星": 2.0, "事業": 2.0, "合作": 2.0, "投資": 1.8},
++    "성장": {"官星": 2.0, "事業": 2.0, "大運": 2.0, "流年": 1.5},
++    "팀": {"比劫": 2.0, "比肩": 2.0, "合作": 2.5, "人脈": 1.8, "官星": 1.5},
++    "채용": {"比劫": 2.0, "合作": 2.0, "人脈": 2.0, "官星": 1.5},
++    "브랜드": {"印星": 2.5, "正印": 2.0, "官星": 1.8, "食傷": 1.5},
++    "인지도": {"印星": 2.0, "官星": 2.0, "食傷": 1.8, "人脈": 1.5},
++    "자동화": {"印星": 2.5, "正印": 2.0, "食神": 1.8, "官星": 1.5},
++    "시스템": {"印星": 2.5, "正印": 2.0, "官星": 1.5},
++    "안정": {"正財": 2.5, "財庫": 2.0, "身强": 2.0, "印星": 1.5},
++    "워라밸": {"身强": 2.5, "健康": 2.0, "精神": 2.0, "印星": 1.5},
++}
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 3. 스코어링 결과 데이터 구조
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++@dataclass
++class ScoreTrace:
++    """🔥 P0: 점수 breakdown (디버깅/투명성)"""
++    priority: float = 0.0
++    tag_match: float = 0.0
++    section_bonus: float = 0.0
++    feature_match: float = 0.0
++    industry_match: float = 0.0
++    pain_match: float = 0.0
++    goal_match: float = 0.0
++    diversity_bonus: float = 0.0
++    
++    @property
++    def total(self) -> float:
++        return (
++            self.priority + self.tag_match + self.section_bonus +
++            self.feature_match + self.industry_match + self.pain_match +
++            self.goal_match + self.diversity_bonus
++        )
++    
++    def to_dict(self) -> Dict[str, float]:
++        return {
++            "priority": round(self.priority, 2),
++            "tag_match": round(self.tag_match, 2),
++            "section_bonus": round(self.section_bonus, 2),
++            "feature_match": round(self.feature_match, 2),
++            "industry_match": round(self.industry_match, 2),
++            "pain_match": round(self.pain_match, 2),
++            "goal_match": round(self.goal_match, 2),
++            "diversity_bonus": round(self.diversity_bonus, 2),
++            "total": round(self.total, 2),
++        }
++
++
++@dataclass
++class ScoredCard:
++    """점수가 매겨진 룰카드"""
++    card_id: str
++    topic: str
++    subtopic: str = ""
++    score: float = 0.0
++    matched_tags: List[str] = field(default_factory=list)
++    score_trace: ScoreTrace = field(default_factory=ScoreTrace)
++    
++    @property
++    def final_score(self) -> float:
++        return self.score_trace.total
++
++
++@dataclass 
++class SectionCards:
++    """섹션별 선택된 카드들"""
++    section_id: str
++    cards: List[ScoredCard]
++    total_cards: int
++    topic_distribution: Dict[str, int]
++    avg_score: float
++    # 🔥 P0: 디버깅용 match_summary
++    match_summary: Dict[str, Any] = field(default_factory=dict)
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 4. 🔥 P0: 설문 기반 스코어링 엔진
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++class RuleCardScorer:
++    """사업가형 태그 + 설문 기반 룰카드 스코어링"""
++    
++    def __init__(
++        self,
++        cards_per_section: int = 100,
++        min_diversity_ratio: float = 0.3,
++    ):
++        self.cards_per_section = cards_per_section
++        self.min_diversity_ratio = min_diversity_ratio
++    
++    def score_cards_for_section(
++        self,
++        all_cards: List[Dict[str, Any]],
++        section_id: str,
++        feature_tags: List[str],
++        survey_data: Optional[Dict[str, Any]] = None,
++        saju_data: Optional[Dict[str, Any]] = None,
++        existing_topics: Set[str] = None
++    ) -> SectionCards:
++        """
++        🔥 P0: 설문 가중치 반영 스코어링
++        
++        Args:
++            all_cards: 전체 룰카드
++            section_id: 섹션 ID
++            feature_tags: 사주 기반 FeatureTags
++            survey_data: 🔥 P0 설문 데이터 (industry, painPoint, goal 포함)
++            existing_topics: 다른 섹션에서 선택된 topic들
++        """
++        existing_topics = existing_topics or set()
++        survey_data = survey_data or {}
++        fact_flags = _compute_fact_flags(saju_data or {})
++        
++        # 섹션별 태그 가중치
++        section_weights = SECTION_TAG_WEIGHTS.get(section_id, {})
++        
++        # 🔥 P0: 설문 데이터 추출
++        industry = (survey_data.get("industry") or "").lower()
++        pain_point = survey_data.get("painPoint") or survey_data.get("primary_bottleneck") or ""
++        goal = (survey_data.get("goal") or survey_data.get("goal_detail") or "").lower()
++        
++        # 🔥 P0: 설문 기반 가중치 태그 수집
++        industry_weights = {}
++        for keyword, weights in INDUSTRY_TAG_WEIGHTS.items():
++            if keyword in industry:
++                for tag, weight in weights.items():
++                    industry_weights[tag] = max(industry_weights.get(tag, 0), weight)
++        
++        pain_weights = PAINPOINT_TAG_WEIGHTS.get(pain_point, {})
++        
++        goal_weights = {}
++        for keyword, weights in GOAL_TAG_WEIGHTS.items():
++            if keyword in goal:
++                for tag, weight in weights.items():
++                    goal_weights[tag] = max(goal_weights.get(tag, 0), weight)
++        
++        scored_cards: List[ScoredCard] = []
++        match_counts = {
++            "total": 0,
++            "industry_matched": 0,
++            "pain_matched": 0,
++            "goal_matched": 0,
++            "feature_matched": 0,
++            "section_matched": 0,
++        }
++        
++        for card in all_cards:
++            card_id = card.get("id", "")
++            topic = card.get("topic", "")
++            subtopic = card.get("subtopic", "")
++            card_tags = card.get("tags", [])
++            priority = card.get("priority", 0)
++            
++            if isinstance(card_tags, str):
++                card_tags = [card_tags]
++            
++            # P0 strict fact filter: do not score cards that contradict the user's pillars
++            card_text = " ".join([*(card_tags or []), str(card.get('title','')), str(card.get('content',''))])
++            req = _card_requires_flag(card_text)
++            if req == "wealth":
++                if fact_flags.get('wealth_present') is False and fact_flags.get('wealth_in_daeun') is False:
++                    continue  # 재성/재물 카드 차단 (원국+대운 모두 부재)
++            elif req == "peer":
++                if fact_flags.get('peer_present') is False:
++                    continue
++            elif req == "power":
++                if fact_flags.get('power_present') is False:
++                    continue
++            elif req == "output":
++                if fact_flags.get('output_present') is False:
++                    continue
++            elif req == "resource":
++                if fact_flags.get('resource_present') is False:
++                    continue
++
++            trace = ScoreTrace()
++            matched_tags = []
++            
++            # 1. Priority 점수
++            trace.priority = float(priority) * 0.5
++            
++            # 2. 기본 비즈니스 태그 매칭
++            for tag in card_tags:
++                if tag in BUSINESS_CORE_TAGS_50:
++                    base_score = BUSINESS_CORE_TAGS_50[tag]
++                    
++                    # 섹션별 가중치 적용
++                    if tag in section_weights:
++                        base_score *= section_weights[tag]
++                        match_counts["section_matched"] += 1
++                    
++                    trace.tag_match += base_score
++                    matched_tags.append(tag)
++            
++            # 3. 🔥🔥🔥 P0 핵심: FeatureTags 매칭 (사주 기반) - 가중치 10배 폭등!
++            # 사주 원국과 맞지 않는 카드는 절대 1등이 될 수 없음
++            for ft in feature_tags:
++                if ft.lower() in [t.lower() for t in card_tags]:
++                    trace.feature_match += 50.0  # 🔥 5.0 → 50.0 (10배 증가)
++                    match_counts["feature_matched"] += 1
++            
++            # 4. 🔥 P0: 업종 가중치
++            for tag in card_tags:
++                if tag in industry_weights:
++                    bonus = industry_weights[tag] * 3.0  # 업종 매칭 보너스
++                    trace.industry_match += bonus
++                    if bonus > 0:
++                        match_counts["industry_matched"] += 1
++            
++            # 5. 🔥 P0: 병목 가중치
++            for tag in card_tags:
++                if tag in pain_weights:
++                    bonus = pain_weights[tag] * 3.0  # 병목 매칭 보너스
++                    trace.pain_match += bonus
++                    if bonus > 0:
++                        match_counts["pain_matched"] += 1
++            
++            # 6. 🔥 P0: 목표 가중치
++            for tag in card_tags:
++                if tag in goal_weights:
++                    bonus = goal_weights[tag] * 3.0  # 목표 매칭 보너스
++                    trace.goal_match += bonus
++                    if bonus > 0:
++                        match_counts["goal_matched"] += 1
++            
++            # 7. 다양성 보너스
++            if topic and topic not in existing_topics:
++                trace.diversity_bonus = 3.0
++            
++            match_counts["total"] += 1
++            
++            scored_cards.append(ScoredCard(
++                card_id=card_id,
++                topic=topic,
++                subtopic=subtopic,
++                score=trace.total,
++                matched_tags=matched_tags,
++                score_trace=trace
++            ))
++        
++        # 점수순 정렬
++        scored_cards.sort(key=lambda c: c.final_score, reverse=True)
++        
++        # 다양성 보장하면서 Top-N 선택
++        selected = self._select_with_diversity(scored_cards)
++        
++        # 통계 계산
++        topic_dist = defaultdict(int)
++        for card in selected:
++            topic_dist[card.topic] += 1
++        
++        avg_score = sum(c.score for c in selected) / len(selected) if selected else 0
++        
++        # 🔥 P0: match_summary 생성
++        match_summary = {
++            "section_id": section_id,
++            "total_cards": len(all_cards),
++            "selected_cards": len(selected),
++            "survey_applied": bool(industry or pain_point or goal),
++            "industry": industry,
++            "painPoint": pain_point,
++            "goal": goal[:50] if goal else "",
++            "match_counts": match_counts,
++            "top_5_cards": [
++                {
++                    "id": c.card_id,
++                    "score": round(c.final_score, 2),
++                    "trace": c.score_trace.to_dict()
++                }
++                for c in selected[:5]
++            ]
++        }
++        
++        logger.info(
++            f"[RuleCardScorer:{section_id}] "
++            f"Total={len(all_cards)} → Selected={len(selected)} | "
++            f"Survey: industry={bool(industry)}, pain={bool(pain_point)}, goal={bool(goal)} | "
++            f"AvgScore={avg_score:.1f}"
++        )
++        
++        return SectionCards(
++            section_id=section_id,
++            cards=selected,
++            total_cards=len(selected),
++            topic_distribution=dict(topic_dist),
++            avg_score=avg_score,
++            match_summary=match_summary
++        )
++    
++    def _get_topic_relevance(self, topic: str, section_id: str) -> float:
++        """Topic과 섹션 간 관련성 점수"""
++        section_topics = {
++            "exec": ["운세", "종합", "대운", "길흉", "총론"],
++            "money": ["재물", "재운", "금전", "투자", "재정"],
++            "business": ["사업", "직업", "커리어", "창업", "진로"],
++            "team": ["인간관계", "대인", "협력", "귀인", "소인"],
++            "health": ["건강", "체력", "에너지", "컨디션"],
++            "calendar": ["월운", "일진", "시기", "날짜"],
++            "sprint": ["실행", "계획", "액션", "단기"],
++        }
++        
++        relevant_topics = section_topics.get(section_id, [])
++        for rel_topic in relevant_topics:
++            if rel_topic in topic:
++                return 5.0
++        return 0.0
++    
++    def _select_with_diversity(self, scored_cards: List[ScoredCard]) -> List[ScoredCard]:
++        """다양성을 보장하면서 Top-N 선택"""
++        if not scored_cards:
++            return []
++        
++        target_count = min(self.cards_per_section, len(scored_cards))
++        top_half = int(target_count * 0.5)
++        
++        # 상위 50%는 점수순
++        selected = scored_cards[:top_half]
++        used_topics = {c.topic for c in selected}
++        
++        # 나머지는 다양성 고려
++        remaining = scored_cards[top_half:]
++        
++        by_topic: Dict[str, List[ScoredCard]] = defaultdict(list)
++        for card in remaining:
++            by_topic[card.topic].append(card)
++        
++        unused_topics = [t for t in by_topic.keys() if t not in used_topics]
++        used_topic_list = list(used_topics & set(by_topic.keys()))
++        topic_order = unused_topics + used_topic_list
++        
++        while len(selected) < target_count:
++            added_any = False
++            for topic in topic_order:
++                if len(selected) >= target_count:
++                    break
++                if by_topic[topic]:
++                    card = by_topic[topic].pop(0)
++                    selected.append(card)
++                    added_any = True
++            if not added_any:
++                break
++        
++        return selected
++    
++    def score_all_sections(
++        self,
++        all_cards: List[Dict[str, Any]],
++        feature_tags: List[str],
++        survey_data: Optional[Dict[str, Any]] = None,
++        section_ids: List[str] = None
++    ) -> Dict[str, SectionCards]:
++        """모든 섹션에 대해 스코어링"""
++        if section_ids is None:
++            section_ids = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
++        
++        results = {}
++        used_topics: Set[str] = set()
++        
++        for section_id in section_ids:
++            section_cards = self.score_cards_for_section(
++                all_cards=all_cards,
++                section_id=section_id,
++                feature_tags=feature_tags,
++                survey_data=survey_data,
++                existing_topics=used_topics
++            )
++            results[section_id] = section_cards
++            used_topics.update(section_cards.topic_distribution.keys())
++        
++        return results
++    
++    def get_cards_for_prompt(
++        self,
++        section_cards: SectionCards,
++        max_chars: int = 8000
++    ) -> str:
++        """프롬프트에 주입할 룰카드 텍스트 생성"""
++        lines = [
++            f"=== {section_cards.section_id.upper()} 섹션 관련 RuleCards ({section_cards.total_cards}장) ===",
++            f"평균 관련도 점수: {section_cards.avg_score:.1f}",
++            f"Topic 분포: {dict(section_cards.topic_distribution)}",
++            "",
++        ]
++        
++        current_len = sum(len(l) for l in lines)
++        
++        for card in section_cards.cards:
++            card_text = f"[{card.card_id}] ({card.topic}/{card.subtopic}) 점수:{card.score:.1f} 태그:{','.join(card.matched_tags[:5])}"
++            
++            if current_len + len(card_text) > max_chars:
++                lines.append(f"... 외 {len(section_cards.cards) - len(lines) + 4}장 (문자 제한으로 생략)")
++                break
++            
++            lines.append(card_text)
++            current_len += len(card_text)
++        
++        return "\n".join(lines)
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 5. 유틸리티 함수
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++def get_business_core_tags() -> Dict[str, int]:
++    """사업가형 핵심 태그 50 조회"""
++    return BUSINESS_CORE_TAGS_50.copy()
++
++
++def get_section_tag_weights(section_id: str) -> Dict[str, float]:
++    """섹션별 태그 가중치 조회"""
++    return SECTION_TAG_WEIGHTS.get(section_id, {}).copy()
++
++
++def get_survey_tag_weights(survey_data: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
++    """
++    🔥 P0: 설문 데이터에서 추출한 가중치 태그 조회
++    """
++    result = {
++        "industry_weights": {},
++        "pain_weights": {},
++        "goal_weights": {},
++    }
++    
++    industry = (survey_data.get("industry") or "").lower()
++    pain_point = survey_data.get("painPoint") or survey_data.get("primary_bottleneck") or ""
++    goal = (survey_data.get("goal") or survey_data.get("goal_detail") or "").lower()
++    
++    for keyword, weights in INDUSTRY_TAG_WEIGHTS.items():
++        if keyword in industry:
++            for tag, weight in weights.items():
++                result["industry_weights"][tag] = max(
++                    result["industry_weights"].get(tag, 0), weight
++                )
++    
++    result["pain_weights"] = PAINPOINT_TAG_WEIGHTS.get(pain_point, {})
++    
++    for keyword, weights in GOAL_TAG_WEIGHTS.items():
++        if keyword in goal:
++            for tag, weight in weights.items():
++                result["goal_weights"][tag] = max(
++                    result["goal_weights"].get(tag, 0), weight
++                )
++    
++    return result
++
++
++# 싱글톤 인스턴스
++rulecard_scorer = RuleCardScorer()
+
+diff --git a/app/services/report_builder.py b/app/services/report_builder.py
+index 0000000..1111111 100644
+--- a/app/services/report_builder.py
++++ b/app/services/report_builder.py
+@@ -1,0 +1,568 @@
++"""
++SajuOS Premium Report Builder v12 - P0 빈 섹션 절대 금지
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++🔥 P0-1: 카드 0개 → LLM 호출 X, 폴백 텍스트 즉시 반환
++🔥 P0-2: 섹션 ID 정합성 (exec,money,business,team,health,calendar,sprint)
++🔥 P0-3: 토큰 "치환" (삭제 X) - {industry}→"해당 업종"
++🔥 P0-4: 생성 실패 원인 로그 4개 필수
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++"""
++import asyncio
++import logging
++import re
++from typing import Dict, Any, List
++from dataclasses import dataclass, field
++
++from openai import AsyncOpenAI
++import httpx
++
++from app.config import get_settings
++from app.services.openai_key import get_openai_api_key
++from app.services.terminology_mapper import sanitize_for_business
++from app.services.job_store import job_store
++from app.templates.master_samples import load_master_samples, get_master_body_markdown
++
++logger = logging.getLogger(__name__)
++
++MASTER_SAMPLES = load_master_samples("v1")
++
++DEBUG_TEMPLATE_LEAKS = False
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# P0-3: 토큰 치환 (삭제 X)
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++TOKEN_REPLACEMENTS = {
++    "{industry}": "해당 업종",
++    "{painPoint}": "현재 병목",
++    "{engine_headline}": "핵심 결론",
++    "{goal}": "목표",
++    "{revenue}": "매출",
++    "{day_master}": "일간",
++    "{time}": "시점",
++    "[ENGINE_HEADLINE]": "",
++    "[/ENGINE_HEADLINE]": "",
++}
++
++
++def replace_template_tokens(text: str) -> str:
++    """🔥 P0-3: 토큰 치환 (삭제가 아닌 의미 있는 텍스트로 대체)"""
++    if not text:
++        return ""
++    if DEBUG_TEMPLATE_LEAKS:
++        return text.strip()
++    for token, replacement in TOKEN_REPLACEMENTS.items():
++        text = text.replace(token, replacement)
++    text = re.sub(r"\{[a-zA-Z_]+\}", "해당 항목", text)
++    return text.strip()
++
++
++def check_template_leaks(text: str, context: str = "") -> List[str]:
++    if not text:
++        return []
++    leaked = []
++    for token in TOKEN_REPLACEMENTS.keys():
++        if token in text:
++            leaked.append(token)
++    if re.search(r"\{[a-zA-Z_]+\}", text):
++        leaked.append("{other}")
++    if leaked:
++        logger.warning(f"[TemplateLeak] {context} | leaked: {leaked}")
++    return leaked
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# P0-2: 섹션 ID 정합성 (기존 ID 유지)
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++@dataclass
++class SectionSpec:
++    id: str
++    title: str
++    max_cards: int
++    min_chars: int
++    fallback_headline: str
++    topic_filter: List[str] = field(default_factory=list)
++
++
++# 🔥 P0-2: 합의된 section_id 고정 (exec, money, business, team, health, calendar, sprint)
++PREMIUM_SECTIONS = {
++    "exec": SectionSpec(
++        "exec", "2026 비즈니스 전략 기상도", 20, 1500,
++        "현재 사주 구조상 2026년 비즈니스 환경은 변화의 기운이 감지됩니다",
++        topic_filter=["전체운", "종합", "일간", "성향", "기운", "운세"]
++    ),
++    "money": SectionSpec(
++        "money", "자본 유동성 및 현금흐름 최적화", 20, 2500,
++        "현재 구조상 현금흐름의 변동성이 예상됩니다",
++        topic_filter=["재물", "재성", "정재", "편재", "현금", "매출", "투자"]
++    ),
++    "business": SectionSpec(
++        "business", "시장 포지셔닝 및 상품 확장 전략", 20, 2500,
++        "현재 구조상 시장 포지셔닝 재검토가 필요합니다",
++        topic_filter=["사업", "창업", "경영", "관성", "정관", "편관", "시장"]
++    ),
++    "team": SectionSpec(
++        "team", "조직 확장 및 파트너십 가이드", 20, 2000,
++        "현재 구조상 파트너십 관리가 핵심 과제입니다",
++        topic_filter=["비겁", "비견", "겁재", "동업", "파트너", "협력", "인맥"]
++    ),
++    "health": SectionSpec(
++        "health", "주요 장애물 및 리스크 (2026)", 15, 1500,
++        "현재 구조상 해당 리스크는 낮은 수준입니다",
++        topic_filter=["리스크", "위험", "충", "형", "파", "손해", "장애", "번아웃"]
++    ),
++    "calendar": SectionSpec(
++        "calendar", "12개월 비즈니스 스프린트 캘린더", 15, 2500,
++        "현재 구조상 월별 리듬에 맞춘 전략이 필요합니다",
++        topic_filter=["월운", "시기", "계절", "타이밍", "길일", "흉일", "대운"]
++    ),
++    "sprint": SectionSpec(
++        "sprint", "향후 90일 매출 극대화 액션플랜", 15, 2000,
++        "현재 구조상 90일 집중 실행이 효과적입니다",
++        topic_filter=["실행", "액션", "계획", "목표", "식신", "상관", "식상"]
++    ),
++}
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# P0-1: 폴백 텍스트 (빈 섹션 방지)
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++def generate_fallback_body(section_id: str, engine_headline: str, survey_data: Dict = None) -> str:
++    """🔥 P0-1: 카드 0개 또는 LLM 실패 시 폴백 텍스트"""
++    spec = PREMIUM_SECTIONS.get(section_id)
++    if not spec:
++        spec = SectionSpec(section_id, "섹션", 10, 500, "분석 중입니다")
++    
++    headline = engine_headline if engine_headline else spec.fallback_headline
++    industry = (survey_data or {}).get("industry", "해당 업종")
++    painPoint = (survey_data or {}).get("painPoint", "현재 병목")
++    
++    return f"""{headline}
++
++## 현재 상황 분석
++
++원인(사주/룰카드) 정보가 충분하지 않아 상세 분석이 제한됩니다.
++설문으로만 억지 추론하는 것은 Root Cause Rule 위반이므로 생략합니다.
++
++### 다음 행동 권장사항
++
++1. **D+14**: {industry} 업종 현황 점검 및 데이터 수집
++2. **D+30**: {painPoint} 관련 핵심 지표 모니터링 시작
++3. **D+60**: 수집된 데이터 기반 전략 재수립
++
++### 체크리스트
++- [ ] 현재 상황 객관적 진단
++- [ ] 핵심 지표 정의
++- [ ] 데이터 수집 체계 구축
++- [ ] 주간 리뷰 일정 확정
++- [ ] 전문가 상담 검토
++
++---
++*추가 사주 정보나 룰카드 매칭이 확보되면 더 정밀한 분석이 가능합니다.*
++"""
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 데이터 구조
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++@dataclass
++class SectionRuleCardAllocation:
++    section_id: str
++    allocated_count: int
++    allocated_card_ids: List[str]
++    context_text: str
++    cards: List[Dict[str, Any]] = field(default_factory=list)
++
++
++def score_card_for_section(card: Dict, section_id: str, survey_data: Dict = None) -> float:
++    spec = PREMIUM_SECTIONS.get(section_id)
++    if not spec:
++        return 1.0
++    score = 1.0
++    topic = (card.get("topic") or "").lower()
++    mechanism = (card.get("mechanism") or "").lower()
++    tags = " ".join(card.get("tags") or []).lower()
++    card_text = f"{topic} {mechanism} {tags}"
++    for tf in spec.topic_filter:
++        if tf.lower() in card_text:
++            score += 3.0
++    if survey_data:
++        pain = (survey_data.get("painPoint") or "").lower()
++        pain_tags = {"lead": ["인맥", "귀인"], "retention": ["비겁", "비견"], "conversion": ["재성", "정재"], "funding": ["재성", "투자"]}
++        for tag in pain_tags.get(pain, []):
++            if tag.lower() in card_text:
++                score += 2.0
++    return score
++
++
++def allocate_rulecards_to_section(all_cards: List[Dict], section_id: str, max_cards: int, used_ids: set, survey_data: Dict = None) -> SectionRuleCardAllocation:
++    scored = []
++    for card in all_cards:
++        cid = card.get("id", card.get("_id", ""))
++        if cid in used_ids:
++            continue
++        score = score_card_for_section(card, section_id, survey_data)
++        scored.append((score, card))
++    scored.sort(key=lambda x: x[0], reverse=True)
++    
++    filtered = [(s, c) for s, c in scored if s > 1.0]
++    if not filtered:
++        logger.warning(f"[CardAlloc] section={section_id} topic_filter hit=0 → fallback")
++        if scored:
++            filtered = scored[:max_cards]
++        elif all_cards:
++            fallback = [c for c in all_cards if c.get("id", c.get("_id", "")) not in used_ids][:max_cards]
++            filtered = [(1.0, c) for c in fallback]
++    
++    allocated = [card for _, card in filtered[:max_cards]]
++    ids, lines = [], []
++    for card in allocated:
++        cid = card.get("id", card.get("_id", ""))
++        ids.append(cid)
++        interp = sanitize_for_business((card.get("interpretation") or "")[:200])
++        lines.append(f"[{cid}] {card.get('topic', '')} | {interp}")
++    
++    logger.info(f"[CardAlloc] section={section_id} | scored={len(scored)} | filtered={len(filtered)} | allocated={len(ids)}")
++    return SectionRuleCardAllocation(section_id, len(ids), ids, "\n".join(lines), allocated)
++
++
++def extract_engine_headline(cards: List[Dict]) -> str:
++    if not cards:
++        return ""
++    top_card = cards[0]
++    interp = top_card.get("interpretation") or top_card.get("content", {}).get("interpretation", "") or top_card.get("mechanism") or ""
++    interp = sanitize_for_business(interp)
++    sentences = re.split(r"[.。!?]", interp)
++    first = sentences[0].strip() if sentences else interp[:100]
++    first = re.sub(r"\{[a-zA-Z_]+\}", "", first)
++    return first if first else interp[:100]
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 프롬프트
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
++- 사주/룰카드(=원인)가 결론이다. 설문(=증상)은 결론이 아니다.
++- 섹션의 첫 문장은 반드시 엔진이 확정한 결론으로 시작한다.
++- 금지: "고객님이 설문에서 ~라고 하셨으니" 같은 서술.
++"""
++
++
++
++
++TENGOD_ORDER = ["비견","겁재","식신","상관","편재","정재","편관","정관","편인","정인"]
++
++
++def build_fact_check_context(saju_data: Dict[str, Any]) -> str:
++    yp = saju_data.get("year_pillar","")
++    mp = saju_data.get("month_pillar","")
++    dp = saju_data.get("day_pillar","")
++    hp = saju_data.get("hour_pillar","")
++    dm = saju_data.get("day_master","")
++    gender = saju_data.get("gender","")
++    age = saju_data.get("age",0)
++    cur = saju_data.get("current_daeun","")
++    direction = saju_data.get("daeun_direction","")
++    tg = saju_data.get("ten_gods_present") or []
++    dtg = saju_data.get("daeun_ten_gods") or []
++    elems = saju_data.get("elements_present") or []
++    has_wealth = bool(saju_data.get("has_wealth_star"))
++
++    def _fmt(xs, order=None):
++        if not xs:
++            return "(없음)"
++        if order:
++            xs = [x for x in order if x in set(xs)] + [x for x in xs if x not in set(order)]
++        return ", ".join(xs)
++
++    return (
++        "## 🚨 원국 팩트체크 (절대 준수)\n"
++        f"- 원국(4주): {yp} {mp} {dp} {hp}\n"
++        f"- 일간: {dm}\n"
++        f"- 성별/만나이: {gender} / {age}\n"
++        f"- 현재 대운: {cur} (방향={direction})\n"
++        f"- 원국 십성(천간+지장간): {_fmt(tg, TENGOD_ORDER)}\n"
++        f"- 현재대운 십성: {_fmt(dtg, TENGOD_ORDER)}\n"
++        f"- 오행: {_fmt(elems)}\n"
++        f"- 재성(정재/편재) 원국 존재: {'있음' if has_wealth else '없음'}\n\n"
++        "### 금지 규칙\n"
++        "1) 위 '원국 십성'에 없는 십성을 '있다'고 단정하지 마라.\n"
++        "2) 재성이 원국에 없으면 '정재/편재가 있다'라고 말하지 마라.\n"
++        "3) 대운 변화는 반드시 '대운에서 들어온다'로 원국과 구분해서 말해라.\n"
++    )
++def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
++    spec = PREMIUM_SECTIONS.get(section_id)
++    if not spec:
++        logger.error(f"[Builder] Invalid section_id: {section_id}")
++        return ""
++    title = spec.title
++    min_chars = spec.min_chars
++    master_body = get_master_body_markdown(section_id)
++    industry = (survey_data or {}).get("industry", "") or "미입력"
++    painPoint = (survey_data or {}).get("painPoint", "") or "미입력"
++    businessGoal = (survey_data or {}).get("businessGoal", "") or "미입력"
++    survey_context = f"\n## 설문 (증상)\n- 업종: {industry}\n- 고민: {painPoint}\n- 목표: {businessGoal}\n"
++    existing_block = ""
++    if existing_contents:
++        existing_block = f"\n## 이전 섹션 (반복 금지)\n{chr(10).join(existing_contents[-2:])}\n"
++    
++    # 🔥 P0: 원국 팩트 체크 블록 추가
++    fact_ctx = build_fact_check_context(saju_data or {})
++    
++    return f"""너는 [{title}] 전문 컨설턴트다.
++
++{ROOT_CAUSE_RULE}
++{fact_ctx}
++
++## 첫 문장 (수정 금지)
++"{engine_headline}"
++
++## 마스터 샘플
++{master_body if master_body else '(자유 작성)'}
++
++## 룰카드
++{cards_summary if cards_summary else '(없음)'}
++{survey_context}
++{existing_block}
++
++## 규칙
++1) 첫 문장: 위 엔진 결론으로 시작
++2) 리스크 2개, 액션 3개, 체크리스트 7개
++3) 최소 {min_chars}자, 한국어로만
++"""
++
++
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++# 빌더 클래스
++# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++
++class PremiumReportBuilder:
++    def __init__(self):
++        self._client = None
++        self._semaphore = None
++    
++    def _get_client(self) -> AsyncOpenAI:
++        api_key = get_openai_api_key()
++        return AsyncOpenAI(api_key=api_key, timeout=httpx.Timeout(120.0, connect=15.0), max_retries=2)
++    
++    async def build_premium_report(self, saju_data: Dict, rulecards: List[Dict], feature_tags: List[str] = None, target_year: int = 2026, user_question: str = "", name: str = "고객", job_id: str = None, survey_data: Dict = None, mode: str = "premium"):
++        self._semaphore = asyncio.Semaphore(2)
++        self._client = self._get_client()
++        if job_id:
++            await job_store.start_job(job_id)
++        
++        used_card_ids = set()
++        results = []
++        existing_contents = []
++        
++        for sid in PREMIUM_SECTIONS.keys():
++            spec = PREMIUM_SECTIONS[sid]
++            alloc = allocate_rulecards_to_section(rulecards, sid, spec.max_cards, used_card_ids, survey_data)
++            used_card_ids.update(alloc.allocated_card_ids)
++            engine_headline = extract_engine_headline(alloc.cards)
++            
++            # 🔥 P0-4: 생성 실패 원인 로그 4개 필수
++            headline_len = len(engine_headline) if engine_headline else 0
++            logger.info(f"[Builder] 📊 section={sid} | 1.allocated_count={alloc.allocated_count} | 2.headline_len={headline_len}")
++            
++            try:
++                result = await self._generate_section_safe(
++                    section_id=sid,
++                    saju_data=saju_data,
++                    allocation=alloc,
++                    target_year=target_year,
++                    survey_data=survey_data,
++                    engine_headline=engine_headline,
++                    existing_contents=existing_contents,
++                    job_id=job_id
++                )
++                
++                body = result.get("body_markdown", "")
++                body_len = len(body)
++                
++                # 🔥 P0-4: LLM 응답 길이 + 최종 저장 길이 로그
++                logger.info(f"[Builder] 📊 section={sid} | 3.llm_response_len={result.get('llm_response_len', 0)} | 4.final_body_len={body_len}")
++                
++                if body_len == 0:
++                    logger.error(f"[Builder] ❌ section={sid} | generated_len=0 → EMPTY SECTION")
++                elif body_len < 200:
++                    logger.warning(f"[Builder] ⚠️ section={sid} | generated_len={body_len} < 200 → TOO SHORT")
++                else:
++                    logger.info(f"[Builder] ✅ section={sid} | generated_len={body_len}")
++                
++                if body:
++                    existing_contents.append(body[:300])
++                results.append(result)
++                
++                if job_id:
++                    await job_store.section_done(job_id, sid, body_len)
++                    
++            except Exception as e:
++                logger.exception(f"[Builder] ❌ 섹션 생성 실패: {sid} | {e}")
++                # 🔥 P0-1: 예외 시에도 폴백으로 빈 섹션 방지
++                fallback_body = generate_fallback_body(sid, engine_headline, survey_data)
++                result = {
++                    "section_id": sid,
++                    "title": spec.title,
++                    "body_markdown": fallback_body,
++                    "engine_headline": engine_headline or spec.fallback_headline,
++                    "rulecard_ids": [],
++                    "char_count": len(fallback_body),
++                    "is_fallback": True,
++                    "error": str(e)[:200]
++                }
++                results.append(result)
++                logger.warning(f"[Builder] 🔄 section={sid} | fallback_len={len(fallback_body)}")
++        
++        if job_id:
++            await job_store.complete_job(job_id, {"sections": len(results)})
++        return {"status": "success", "sections": results}
++    
++    async def _generate_section_safe(self, section_id: str, saju_data: Dict, allocation: SectionRuleCardAllocation, target_year: int, survey_data: Dict, engine_headline: str, existing_contents: List[str], job_id: str = None) -> Dict[str, Any]:
++        """🔥 P0-1: 빈 섹션 절대 금지 - 카드 0개면 폴백"""
++        spec = PREMIUM_SECTIONS.get(section_id)
++        if not spec:
++            logger.error(f"[Builder] Invalid section_id: {section_id}")
++            raise ValueError(f"Invalid section_id: {section_id}")
++        
++        # 🔥 P0-1(A): 카드 0개면 LLM 호출 X, 즉시 폴백
++        if allocation.allocated_count == 0:
++            logger.warning(f"[Builder] section={section_id} | cards=0 → skip LLM, use fallback")
++            fallback_body = generate_fallback_body(section_id, engine_headline, survey_data)
++            return {
++                "section_id": section_id,
++                "title": spec.title,
++                "body_markdown": fallback_body,
++                "engine_headline": engine_headline or spec.fallback_headline,
++                "rulecard_ids": [],
++                "char_count": len(fallback_body),
++                "llm_response_len": 0,
++                "is_fallback": True
++            }
++        
++        cards_summary = self._build_cards_summary(allocation.cards[:5])
++        system_prompt = build_system_prompt(
++            section_id=section_id,
++            engine_headline=engine_headline or spec.fallback_headline,
++            survey_data=survey_data,
++            saju_data=saju_data,  # 🔥 P0: 팩트체크용
++            existing_contents=existing_contents,
++            cards_summary=cards_summary
++        )
++        user_prompt = self._build_user_prompt(saju_data, allocation, target_year)
++        
++        llm_response_len = 0
++        body_markdown = ""
++        
++        async with self._semaphore:
++            try:
++                response = await self._client.chat.completions.create(
++                    model="gpt-4o",
++                    messages=[
++                        {"role": "system", "content": system_prompt},
++                        {"role": "user", "content": user_prompt}
++                    ],
++                    temperature=0.7,
++                    max_tokens=4000
++                )
++                body_markdown = response.choices[0].message.content or ""
++                llm_response_len = len(body_markdown)
++            except Exception as e:
++                logger.error(f"[Builder] GPT 호출 실패: {section_id} | {e}")
++                # 🔥 P0-1(B): 예외 시 폴백
++                body_markdown = generate_fallback_body(section_id, engine_headline, survey_data)
++                llm_response_len = 0
++        
++        # LLM 응답이 너무 짧으면 폴백
++        if len(body_markdown) < 200:
++            logger.warning(f"[Builder] section={section_id} | llm_response too short ({len(body_markdown)}) → fallback")
++            body_markdown = generate_fallback_body(section_id, engine_headline, survey_data)
++        
++        body_markdown = self._enforce_engine_headline(body_markdown, engine_headline or spec.fallback_headline)
++        
++        # 🔥 P0-3: leak 체크 후 치환
++        leaked = check_template_leaks(body_markdown, f"section={section_id}")
++        body_markdown = replace_template_tokens(body_markdown)
++        
++        return {
++            "section_id": section_id,
++            "title": spec.title,
++            "body_markdown": body_markdown,
++            "engine_headline": engine_headline or spec.fallback_headline,
++            "rulecard_ids": allocation.allocated_card_ids,
++            "char_count": len(body_markdown),
++            "llm_response_len": llm_response_len,
++            "leaked_tokens": leaked
++        }
++    
++    def _build_cards_summary(self, cards: List[Dict]) -> str:
++        lines = []
++        for i, c in enumerate(cards[:5], 1):
++            interp = (c.get("interpretation") or "")[:80]
++            lines.append(f"{i}. [{c.get('topic', '')}] {interp}")
++        return "\n".join(lines) if lines else "(없음)"
++    
++    def _build_user_prompt(self, saju_data: Dict, allocation: SectionRuleCardAllocation, target_year: int) -> str:
++        year_pillar = saju_data.get("year_pillar", "-")
++        month_pillar = saju_data.get("month_pillar", "-")
++        day_pillar = saju_data.get("day_pillar", "-")
++        hour_pillar = saju_data.get("hour_pillar", "-") or "미입력"
++        day_master = saju_data.get("day_master", "")
++        card_lines = []
++        for c in allocation.cards[:10]:
++            interp = (c.get("interpretation") or "")[:100]
++            card_lines.append(f"- [{c.get('id', '')}] {c.get('topic', '')} | {interp}")
++        return f"""## 사주 원국
++| 년주 | 월주 | 일주 | 시주 |
++|------|------|------|------|
++| {year_pillar} | {month_pillar} | {day_pillar} | {hour_pillar} |
++
++- 일간: {day_master}
++- 분석년도: {target_year}년
++
++## 룰카드
++{chr(10).join(card_lines) if card_lines else '(없음)'}
++
++위 정보로 작성하세요.
++"""
++    
++    def _enforce_engine_headline(self, body_markdown: str, engine_headline: str) -> str:
++        if not engine_headline:
++            return body_markdown
++        headline = engine_headline.strip()
++        body_stripped = body_markdown.lstrip()
++        if body_stripped.startswith(headline):
++            return body_markdown
++        if len(body_stripped) > 50 and headline[:30] in body_stripped[:100]:
++            return body_markdown
++        logger.warning(f"[Builder] engine_headline 강제 삽입")
++        return f"{headline}\n\n{body_stripped}"
++    
++    async def regenerate_single_section(self, section_id: str, saju_data: Dict, rulecards: List[Dict], feature_tags: List[str] = None, target_year: int = 2026, user_question: str = "", survey_data: Dict = None):
++        self._client = self._get_client()
++        self._semaphore = asyncio.Semaphore(1)
++        spec = PREMIUM_SECTIONS.get(section_id)
++        if not spec:
++            logger.error(f"[Builder] Invalid section_id: {section_id}")
++            raise ValueError(f"Invalid section_id: {section_id}")
++        alloc = allocate_rulecards_to_section(rulecards, section_id, spec.max_cards, set(), survey_data)
++        engine_headline = extract_engine_headline(alloc.cards)
++        result = await self._generate_section_safe(
++            section_id=section_id,
++            saju_data=saju_data,
++            allocation=alloc,
++            target_year=target_year,
++            survey_data=survey_data,
++            engine_headline=engine_headline,
++            existing_contents=[]
++        )
++        return {"success": True, "section": result}
++
++
++premium_report_builder = PremiumReportBuilder()
++report_builder = premium_report_builder

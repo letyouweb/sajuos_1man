@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 MASTER_SAMPLES = load_master_samples("v1")
 
-DEBUG_TEMPLATE_LEAKS = True
+DEBUG_TEMPLATE_LEAKS = False
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
