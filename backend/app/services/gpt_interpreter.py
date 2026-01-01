@@ -239,6 +239,10 @@ class GptInterpreter:
         }
         concern_text = concern_map.get(concern_type, "General")
         
+        # 🔥 P0: saju_summary 정답지 추출
+        saju_summary = saju_data.get("saju_summary", {})
+        summary_json = json.dumps(saju_summary, ensure_ascii=False, indent=2) if saju_summary else "{}"
+        
         return f"""[User Info]
 - Gender: {gender_text}
 - Concern: {concern_text}
@@ -253,6 +257,15 @@ class GptInterpreter:
 [Day Master]
 - Stem: {day_master}
 - Element: {day_master_elem}
+
+[🔴 Ground Truth saju_summary - 이 데이터가 정답이다]
+{summary_json}
+
+[환각 방지 규칙]
+1. 위 saju_summary에 없는 십성/오행을 "있다"고 주장하지 마라.
+2. is_missing_shiksang=true면, 식상/상관이 "있다"고 말하지 마라.
+3. is_missing_jaesung=true면, 재성이 "있다"고 말하지 마라.
+4. allowed_structure_names 외의 격국 이름을 사용하지 마라.
 
 Analyze and respond in JSON format."""
 

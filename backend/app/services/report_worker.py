@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, List
 
 from app.services.supabase_service import supabase_service
 from app.services.saju_engine import calc_daeun_pillars
+from app.services.saju_analyzer import get_saju_summary  # 🔥 P0: 정답지 생성
 
 logger = logging.getLogger(__name__)
 
@@ -723,10 +724,23 @@ class ReportWorker:
             # 🔥 P0: 대운 정보 추가
             "gender": gender,
             "age": age,
-            "daeun_direction": direction,
+            "daeun_direction": daeun_direction,
             "daeun_list": daeun_list,
             "current_daeun": current_daeun,
         }
+        
+        # 🔥 P0: saju_summary 정답지 생성 및 주입
+        saju_summary = get_saju_summary(saju_data)
+        saju_data["saju_summary"] = saju_summary
+        saju_data["ten_gods_present"] = saju_summary.get("ten_gods_present", [])
+        saju_data["elements_present"] = saju_summary.get("elements_present", [])
+        saju_data["has_wealth_star"] = saju_summary.get("has_wealth_star", False)
+        saju_data["is_missing_shiksang"] = saju_summary.get("is_missing_shiksang", False)
+        saju_data["is_missing_jaesung"] = saju_summary.get("is_missing_jaesung", False)
+        
+        logger.info(f"[Worker] 🎯 saju_summary 생성: 재성={saju_summary.get('ten_gods_distribution', {}).get('재성', 0)} | 식상={saju_summary.get('ten_gods_distribution', {}).get('식상', 0)}")
+        
+        return saju_data
     
     def _build_feature_tags(self, saju_data: Dict) -> List[str]:
         """Feature Tags 생성"""
