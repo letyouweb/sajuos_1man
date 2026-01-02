@@ -11,6 +11,7 @@ Report Worker v13 - P0 Pivot: 설문 기반 RuleCardScorer 통합
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import asyncio
+import json
 import logging
 import time
 from datetime import date
@@ -21,6 +22,23 @@ from app.services.saju_engine import calc_daeun_pillars
 from app.services.saju_analyzer import get_saju_summary  # 🔥 P0: 정답지 생성
 
 logger = logging.getLogger(__name__)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 P0: Supabase JSON 문자열 → dict 안전 변환
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _ensure_dict(v: Any) -> Dict:
+    """Supabase/프론트에서 JSON이 문자열로 올 때 dict로 안전 변환"""
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str):
+        try:
+            vv = json.loads(v)
+            return vv if isinstance(vv, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 P0: 생성 결과 용어 정규화 (룰카드/LLM 오타/잔존어 방지)
@@ -186,12 +204,16 @@ class ReportWorker:
             raise ValueError(f"Job 없음: {job_id}")
         
         email = job.get("user_email", "")
-        input_json = job.get("input_json") or {}
+        # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
+        input_json_raw = job.get("input_json") or job.get("input_data") or {}
+        input_json = _ensure_dict(input_json_raw)
+        if not input_json and isinstance(input_json_raw, str):
+            logger.warning(f"[Worker] input_json이 문자열인데 파싱 실패: {str(input_json_raw)[:120]}...")
         
         name = input_json.get("name", "고객")
         target_year = input_json.get("target_year", 2026)
         question = input_json.get("question", "")
-        survey_data = input_json.get("survey_data") or {}
+        survey_data = _ensure_dict(input_json.get("survey_data") or {})
         
         await supabase_service.update_progress(job_id, 5, "running")
         
@@ -330,7 +352,8 @@ class ReportWorker:
 
     def _prepare_saju_data(self, input_json: Dict) -> Dict:
         """사주 데이터 추출 및 정답지 주입"""
-        saju_result = input_json.get("saju_result") or {}
+        # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
+        saju_result = _ensure_dict(input_json.get("saju_result") or {})
         target_year = input_json.get("target_year", 2026)
         
         def extract_ganji(pillar_data):
@@ -345,7 +368,8 @@ class ReportWorker:
         day_master = saju_result.get("day_master", "")
         day_master_element = saju_result.get("day_master_element", "")
         day_master_description = saju_result.get("day_master_description", "")
-        birth_info = saju_result.get("birth_info") or {}
+        # 🔥 P0 FIX: birth_info도 안전 변환
+        birth_info = _ensure_dict(saju_result.get("birth_info") or {})
         
         # 대운 계산
         gender = _normalize_gender(input_json.get("gender") or birth_info.get("gender") or saju_result.get("gender", ""))
@@ -508,7 +532,10 @@ class ReportWorker:
         if not email: return
         try:
             from app.services.email_sender import email_sender
-            await email_sender.send_report_failed(to_email=email, name=job.get("input_json", {}).get("name", "고객"), report_id=job.get("id", ""), error_message=error[:200])
+            # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
+            input_json = _ensure_dict(job.get("input_json") or job.get("input_data") or {})
+            name = input_json.get("name", "고객")
+            await email_sender.send_report_failed(to_email=email, name=name, report_id=job.get("id", ""), error_message=error[:200])
         except Exception as e: logger.warning(f"실패 이메일 발송 실패: {e}")
 
 report_worker = ReportWorker()
