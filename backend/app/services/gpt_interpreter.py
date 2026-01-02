@@ -20,6 +20,32 @@ from app.services.openai_key import get_openai_api_key, key_fingerprint, key_tai
 
 logger = logging.getLogger(__name__)
 
+# P0: 원국 글자 환각 방지(천간/지지)
+STEMS = ["갑","을","병","정","무","기","경","신","임","계"]
+BRANCHES = ["자","축","인","묘","진","사","오","미","신","유","술","해"]
+STEM_TO_ELEMENT = {
+    "갑": "목", "을": "목",
+    "병": "화", "정": "화",
+    "무": "토", "기": "토",
+    "경": "금", "신": "금",
+    "임": "수", "계": "수",
+}
+
+def _parse_pillar(p: str) -> tuple[str, str]:
+    """간지 문자열 분리"""
+    p = (p or "").strip()
+    return (p[0], p[1]) if len(p) >= 2 else ("", "")
+
+def _allowed_chars_from_saju(saju_data: dict) -> dict:
+    """사주 데이터에서 실제 존재하는 천간/지지 추출"""
+    stems, branches = set(), set()
+    for k in ["year_pillar","month_pillar","day_pillar","hour_pillar"]:
+        g, z = _parse_pillar(saju_data.get(k, ""))
+        if g: stems.add(g)
+        if z: branches.add(z)
+    return {"stems": sorted(stems), "branches": sorted(branches)}
+
+
 GUARDRAIL_ADDON = """
 ## Rules
 1. No specific person names
@@ -243,6 +269,23 @@ class GptInterpreter:
         saju_summary = saju_data.get("saju_summary", {})
         summary_json = json.dumps(saju_summary, ensure_ascii=False, indent=2) if saju_summary else "{}"
         
+        # 🔒 P0: 허용 글자(천간/지지) 기반 환각 봉쇄
+        allowed = _allowed_chars_from_saju(saju_data or {})
+        allowed_stems = allowed.get("stems", [])
+        allowed_branches = allowed.get("branches", [])
+        forbidden_stems = [s for s in STEMS if s not in allowed_stems]
+        forbidden_pairs = [f"{s}{STEM_TO_ELEMENT.get(s, '')}" for s in forbidden_stems if STEM_TO_ELEMENT.get(s)]
+        
+        truth_anchor = f"""[CRITICAL CONSTRAINTS]
+- 너는 사주를 다시 계산하지 마라(지장간/숨은천간 추론 금지).
+- 허용 천간: {", ".join(allowed_stems) if allowed_stems else "(미제공)"}
+- 허용 지지: {", ".join(allowed_branches) if allowed_branches else "(미제공)"}
+- 금지 천간: {", ".join(forbidden_stems) if forbidden_stems else "(없음)"}
+- 금지 조합(원국에 없음): {", ".join(forbidden_pairs) if forbidden_pairs else "(없음)"}
+- 오타 금지: '걸록격' 사용 금지(반드시 '건록격')
+- 금지 문구: 관성 충돌 / 월지 비견 / 충돌 구조
+"""
+        
         return f"""[User Info]
 - Gender: {gender_text}
 - Concern: {concern_text}
@@ -266,7 +309,9 @@ class GptInterpreter:
 2. is_missing_shiksang=true면, 식상/상관이 "있다"고 말하지 마라.
 3. is_missing_jaesung=true면, 재성이 "있다"고 말하지 마라.
 4. allowed_structure_names 외의 격국 이름을 사용하지 마라.
+5. 지장간/숨은천간으로 원국 성분을 창조하지 마라.
 
+{truth_anchor}
 Analyze and respond in JSON format."""
 
     def _get_pillar(self, data: Dict, key1: str, key2: str) -> str:

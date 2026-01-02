@@ -7,6 +7,7 @@ Report Worker v13 - P0 Pivot: 설문 기반 RuleCardScorer 통합
 3) 같은 사주라도 설문에 따라 다른 카드가 선택됨
 4) 섹션별 score_trace 저장
 5) 용어 정규화 (걸록격 -> 건록격 등) 적용
+6) 대운 계산 예외 처리 (계산 실패 시에도 중단 X)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import asyncio
@@ -91,21 +92,6 @@ STEM_ELEM_POLAR = {
     "임": ("water", "yang"), "계": ("water", "yin"),
 }
 
-BRANCH_HIDDEN_STEMS = {
-    "자": ["임", "계"],
-    "축": ["기", "계", "신"],
-    "인": ["갑", "병", "무"],
-    "묘": ["을"],
-    "진": ["무", "을", "계"],
-    "사": ["병", "무", "경"],
-    "오": ["정", "기"],
-    "미": ["기", "정", "을"],
-    "신": ["경", "임", "무"],
-    "유": ["신"],
-    "술": ["무", "신", "정"],
-    "해": ["갑", "임"],
-}
-
 GENERATOR = {"wood": "fire", "fire": "earth", "earth": "metal", "metal": "water", "water": "wood"}
 CONTROLS = {"wood": "earth", "earth": "water", "water": "fire", "fire": "metal", "metal": "wood"}
 
@@ -174,12 +160,6 @@ class ReportWorker:
         self._running_jobs.add(job_id)
         start_time = time.time()
         
-        if rulestore:
-            card_count = len(getattr(rulestore, 'cards', [])) if hasattr(rulestore, 'cards') else 0
-            logger.info(f"[Worker] RuleStore 수신: total={card_count}장")
-        else:
-            logger.warning(f"[Worker] ⚠️ RuleStore가 None!")
-        
         try:
             success, error_msg = await self._execute_job(job_id, rulestore)
             elapsed = int((time.time() - start_time) * 1000)
@@ -195,13 +175,6 @@ class ReportWorker:
                 await supabase_service.fail_job(job_id, str(e)[:500])
             except:
                 pass
-            
-            try:
-                job = await supabase_service.get_job(job_id)
-                if job:
-                    await self._send_failure_email(job, str(e))
-            except Exception as email_err:
-                logger.warning(f"[Worker] 실패 이메일 발송 실패: {email_err}")
         
         finally:
             self._running_jobs.discard(job_id)
@@ -225,22 +198,19 @@ class ReportWorker:
         # 🔥 P0: 사주 데이터 추출
         saju_data = self._prepare_saju_data(input_json)
         
-        # 🔥🔥🔥 P0 핵심: 사주 데이터 무결성 체크
+        # 사주 데이터 무결성 체크
         missing_pillars = []
         for key in ["year_pillar", "month_pillar", "day_pillar"]:
             if not saju_data.get(key):
                 missing_pillars.append(key)
         
         if missing_pillars:
-            error_msg = f"사주 데이터 누락: {missing_pillars}. 사주 없는 사주 리포트는 상품 가치가 없습니다."
-            logger.error(f"[Worker] ❌❌❌ {error_msg}")
+            error_msg = f"사주 데이터 누락: {missing_pillars}."
             await supabase_service.fail_job(job_id, error_msg)
             return False, error_msg
         
-        # 🔥 P0: Feature Tags 생성
+        # Feature Tags 생성
         feature_tags = self._build_feature_tags(saju_data)
-        
-        # 🔥🔥🔥 P0 핵심: RuleCardScorer로 설문 기반 카드 선택
         all_cards = self._get_all_cards_as_dict(rulestore)
         
         sections_result = {}
@@ -302,7 +272,6 @@ class ReportWorker:
                 if not body_markdown or len(body_markdown) < 300:
                     fallback_text = f"## {section_title}\n\n이 섹션의 분석 결과를 생성하는 중 문제가 발생했습니다."
                     content["body_markdown"] = fallback_text
-                    body_markdown = fallback_text
                 
                 content["match_summary"] = match_summary
                 content["used_rulecard_ids"] = [c.get("id") for c in section_cards[:10]]
@@ -387,16 +356,24 @@ class ReportWorker:
         daeun_list = []
         current_daeun = None
         
+        # 🔥🔥🔥 P0 핵심: 대운 계산 예외 처리 추가
         if gender and year_stem and month_pillar and age:
-            is_yang_year = _year_stem_is_yang(year_stem)
-            is_male = (gender == "male")
-            direction = "forward" if ((is_male and is_yang_year) or (not is_male and not is_yang_year)) else "backward"
-            daeun_list = calc_daeun_pillars(month_pillar, direction, count=10)
-            if daeun_list:
-                start_age = int(saju_result.get('daeun_start_age') or 3)
-                idx = (age - start_age) // 10
-                if 0 <= idx < len(daeun_list):
-                    current_daeun = daeun_list[idx]
+            try:
+                is_yang_year = _year_stem_is_yang(year_stem)
+                is_male = (gender == "male")
+                direction = "forward" if ((is_male and is_yang_year) or (not is_male and not is_yang_year)) else "backward"
+                daeun_list = calc_daeun_pillars(month_pillar, direction, count=10)
+                if daeun_list:
+                    start_age = int(saju_result.get('daeun_start_age') or 3)
+                    idx = (age - start_age) // 10
+                    if 0 <= idx < len(daeun_list):
+                        current_daeun = daeun_list[idx]
+            except Exception as e:
+                # 대운 계산 실패해도 보고서 생성은 계속 진행
+                logger.warning(f"[ReportWorker] 대운 계산 실패: {e}")
+                direction = ""
+                daeun_list = []
+                current_daeun = None
 
         # ✅ P0 FIX: NameError 방지 및 saju_data 구성
         daeun_direction = direction or ""
