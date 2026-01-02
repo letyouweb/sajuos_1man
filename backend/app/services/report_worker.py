@@ -8,7 +8,7 @@ Report Worker v13 - P0 Pivot: 설문 기반 RuleCardScorer 통합
 4) 섹션별 score_trace 저장
 5) 용어 정규화 (걸록격 -> 건록격 등) 적용
 6) 대운 계산 예외 처리 (계산 실패 시에도 중단 X)
-7) JSON 필드 문자열 입력 시 dict 안전 변환 적용
+7) JSON 필드 문자열 입력 시 dict 안전 변환 적용 (즉사 버그 패치)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import asyncio
@@ -204,13 +204,20 @@ class ReportWorker:
         if not job:
             raise ValueError(f"Job 없음: {job_id}")
         
-        # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환 (Diff 내용 반영)
+        # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
         input_json = _ensure_dict(job.get("input_json") or job.get("input_data") or {})
         
-        name = input_json.get("name") or input_json.get("user_name") or "고객"
+        # 🔥 패치: 타입 안정성 확보
+        name = str(input_json.get("name") or input_json.get("user_name") or "고객")
+        
+        target_year_raw = input_json.get("target_year", 2026)
+        try:
+            target_year = int(target_year_raw)
+        except Exception:
+            target_year = 2026
+            
+        question = str(input_json.get("question") or "")
         email = input_json.get("email") or input_json.get("user_email") or job.get("user_email") or ""
-        target_year = input_json.get("target_year", 2026)
-        question = input_json.get("question", "")
         survey_data = _ensure_dict(input_json.get("survey_data") or {})
         
         await supabase_service.update_progress(job_id, 5, "running")
@@ -358,7 +365,7 @@ class ReportWorker:
         saju_result = _ensure_dict(input_json.get("saju_result") or {})
         saju_nested = _ensure_dict(saju_result.get("saju") or {})
         
-        # birth_info 추출 경로 다각화 (Diff 내용 반영)
+        # birth_info 추출 경로 다각화
         birth_info = _ensure_dict(saju_result.get("birth_info") or input_json.get("birth_info") or {})
         
         def extract_ganji(pillar_data):
@@ -414,7 +421,7 @@ class ReportWorker:
             "saju_result": saju_result,
             "gender": gender,
             "age": age,
-            "daeun_direction": direction, # Diff의 direction 반영
+            "daeun_direction": direction, # 🔥 패치: 변수명 정합성
             "daeun_start_age": daeun_start_age,
             "daeun_start_year": daeun_start_year,
             "daeun_list": daeun_list,
@@ -431,6 +438,7 @@ class ReportWorker:
             saju_data["elements_present"] = saju_summary.get("elements_present", [])
         except Exception as e:
             logger.warning(f"[Worker] saju_summary 생성 실패: {e}")
+            saju_data["saju_summary"] = {}
             
         return saju_data
 
@@ -578,7 +586,7 @@ class ReportWorker:
         if not email: return
         try:
             from app.services.email_sender import email_sender
-            name = input_json.get("name", "고객")
+            name = str(input_json.get("name", "고객"))
             await email_sender.send_report_failed(to_email=email, name=name, report_id=job.get("id", ""), error_message=error[:200])
         except Exception as e: logger.warning(f"실패 이메일 발송 실패: {e}")
 

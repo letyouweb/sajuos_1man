@@ -5,12 +5,14 @@ SajuOS V1.0 하이브리드 엔진 - Main App
 1. sajuos_master.db 우선 로드 (SQLite)
 2. RuleCards 콘텐츠 주입 보장
 3. Match 모듈 자동 주입
+4. P0: 라우터 로딩 구조 분리 (import_module 적용)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import os
 import logging
-from pathlib import Path
 import subprocess
+from pathlib import Path
+from importlib import import_module
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,11 +24,9 @@ logger = logging.getLogger(__name__)
 # 🔥 P0: GIT_SHA 추출 (배포 증명용)
 def get_git_sha() -> str:
     """Git commit SHA 추출"""
-    # 1) 환경변수 우선
     sha = os.environ.get("GIT_SHA") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or os.environ.get("RENDER_GIT_COMMIT")
     if sha:
         return sha[:8]
-    # 2) git 명령어 시도
     try:
         result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
@@ -55,36 +55,25 @@ async def health():
 async def root():
     return {"service": "SajuOS V1.0", "status": "running", "engine": "hybrid"}
 
-# 라우터 등록
-try:
-    from app.routers import calculate, interpret
-    app.include_router(calculate.router, prefix="/api/v1", tags=["Calculate"])
-    app.include_router(interpret.router, prefix="/api/v1", tags=["Interpret"])
-    logger.info("✅ calculate, interpret 라우터 등록")
-except Exception as e:
-    logger.error(f"❌ 기본 라우터 등록 실패: {e}")
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 P0: 안전한 라우터 등록 로직
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _safe_include_router(module_path: str, prefix: str, tags: list, label: str) -> None:
+    """모듈 임포트 에러가 다른 라우터에 영향을 주지 않도록 안전하게 등록"""
+    try:
+        m = import_module(module_path)
+        router = getattr(m, "router")
+        app.include_router(router, prefix=prefix, tags=tags)
+        logger.info(f"✅ {label} 라우터 등록 완료 (prefix: {prefix})")
+    except Exception as e:
+        logger.error(f"❌ {label} 라우터 등록 실패: {e}")
 
-try:
-    from app.routers import reports
-    app.include_router(reports.router, prefix="/api/v1", tags=["Reports"])
-    logger.info("✅ reports 라우터 등록")
-except Exception as e:
-    logger.error(f"❌ reports 라우터 등록 실패: {e}")
-
-try:
-    from app.routers import debug
-    app.include_router(debug.router, prefix="/api/v1", tags=["Debug"])
-    logger.info("✅ debug 라우터 등록")
-except Exception as e:
-    logger.error(f"❌ debug 라우터 등록 실패: {e}")
-
-# 🔥 debug_engine 라우터 추가
-try:
-    from app.routers import debug_engine
-    app.include_router(debug_engine.router, prefix="/api/v1", tags=["Debug Engine"])
-    logger.info("✅ debug_engine 라우터 등록")
-except Exception as e:
-    logger.warning(f"⚠️ debug_engine 라우터 등록 실패: {e}")
+# 라우터 등록 실행
+_safe_include_router("app.routers.calculate", "/api/v1", ["Calculate"], "calculate")
+_safe_include_router("app.routers.interpret", "/api/v1", ["Interpret"], "interpret")
+_safe_include_router("app.routers.reports", "/api/v1/reports", ["Reports"], "reports")
+_safe_include_router("app.routers.debug", "/api/v1/debug", ["Debug"], "debug")
+_safe_include_router("app.routers.debug_engine", "/api/v1/debug_engine", ["Debug Engine"], "debug_engine")
 
 
 @app.on_event("startup")
@@ -99,7 +88,6 @@ async def startup():
     try:
         from app.services.rulecards_store import RuleCardStore
         
-        # 🔥🔥🔥 master_db 우선 로드
         base_dir = Path(__file__).parent.parent
         master_db_paths = [
             base_dir / "data" / "sajuos_master.db",
@@ -116,7 +104,6 @@ async def startup():
         store = None
         source = None
         
-        # 1) master_db 먼저 시도
         for db_path in master_db_paths:
             if db_path.exists():
                 logger.info(f"[RuleCards] master_db 발견: {db_path}")
@@ -124,7 +111,6 @@ async def startup():
                 source = "master_db"
                 break
         
-        # 2) master_db 없으면 jsonl fallback
         if not store:
             for jsonl_path in jsonl_paths:
                 if jsonl_path.exists():
@@ -137,21 +123,8 @@ async def startup():
         if store:
             app.state.rulestore = store
             total = len(store.cards)
-            logger.info(f"")
-            logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            logger.info(f"✅ RuleCards source={source}")
-            logger.info(f"✅ RuleCards 로드 완료: 총 {total}장")
-            logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"✅ RuleCards source={source} | 로드 완료: 총 {total}장")
             
-            if store.by_topic:
-                logger.info(f"📊 토픽별 분포:")
-                for topic, cards in sorted(store.by_topic.items()):
-                    logger.info(f"   - {topic}: {len(cards)}장")
-            
-            if store.idf:
-                logger.info(f"📝 IDF 토큰: {len(store.idf)}개")
-            
-            # Match 모듈에 주입
             try:
                 from app.services.match_module import match_module
                 match_module.store = store
@@ -164,13 +137,10 @@ async def startup():
             
     except Exception as e:
         logger.warning(f"⚠️ RuleCards 로드 실패: {e}")
-        import traceback
-        logger.warning(traceback.format_exc())
     
     # 🔥 P0: DB 걸록 잔존 체크 + 자동 패치
     try:
         import sqlite3
-        import os
         db_path = None
         for p in [Path(__file__).parent.parent / "data" / "sajuos_master.db", Path("/app/data/sajuos_master.db")]:
             if p.exists():
@@ -186,20 +156,16 @@ async def startup():
                 try:
                     n = cur.execute(f"SELECT COUNT(*) FROM rule_cards WHERE {c} LIKE '%걸록%'").fetchone()[0]
                     total_typo += n
-                except:
-                    pass
+                except: pass
             
             if total_typo > 0:
-                logger.warning(f"⚠️ [RuleCards] '걸록' 오타 {total_typo}개 발견! 자동 패치 실행...")
+                logger.warning(f"⚠️ '걸록' 오타 {total_typo}개 발견! 자동 패치 실행...")
                 for c in cols:
                     try:
                         cur.execute(f"UPDATE rule_cards SET {c} = REPLACE({c}, '걸록', '건록') WHERE {c} LIKE '%걸록%'")
-                    except:
-                        pass
+                    except: pass
                 conn.commit()
-                logger.info(f"✅ [RuleCards] '걸록' → '건록' 자동 패치 완료")
-            else:
-                logger.info(f"✅ [RuleCards] '걸록' 오타 없음 (정상)")
+                logger.info(f"✅ '걸록' → '건록' 자동 패치 완료")
             conn.close()
     except Exception as typo_err:
         logger.debug(f"[RuleCards] 오타 체크 스킵: {typo_err}")
@@ -212,7 +178,6 @@ async def ready():
     checks = {
         "rulecards": app.state.rulestore is not None,
         "rulecards_count": len(app.state.rulestore.cards) if app.state.rulestore else 0,
-        "rulecards_source": getattr(app.state.rulestore, "source", "unknown") if app.state.rulestore else "none",
         "openai": bool(os.getenv("OPENAI_API_KEY")),
         "supabase": bool(os.getenv("SUPABASE_URL")),
     }
