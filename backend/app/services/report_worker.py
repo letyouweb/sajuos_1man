@@ -84,6 +84,15 @@ class ReportWorker:
         finally:
             _ = time.time() - started
 
+    # -----------------------------------------------------------------
+    # Backward-compat alias
+    # reports.py / 기존 코드가 run_job(...)을 호출하는 경우가 있어 alias를 유지합니다.
+    # -----------------------------------------------------------------
+    async def run_job(self, job_id: str, rulestore: Any = None) -> Tuple[bool, str]:
+        """Backward compatible entrypoint (alias of process)."""
+        # rulestore는 legacy signature 호환용(현재는 내부에서 self.scorer를 사용)
+        return await self.process(job_id)
+
     async def _execute_job(self, job_id: str, rulestore: Any = None) -> Tuple[bool, str]:
         job = await self.supabase.get_job(job_id)
         if not job:
