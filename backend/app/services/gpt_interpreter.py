@@ -10,7 +10,7 @@ import logging
 import random
 import asyncio
 import re
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Set
 from openai import AsyncOpenAI, APIError, RateLimitError, APIConnectionError, AuthenticationError
 import httpx
 
@@ -21,31 +21,8 @@ from app.services.openai_key import get_openai_api_key, key_fingerprint, key_tai
 
 logger = logging.getLogger(__name__)
 
-# P0: 원국 글자 환각 방지(천간/지지)
-STEMS = ["갑","을","병","정","무","기","경","신","임","계"]
-BRANCHES = ["자","축","인","묘","진","사","오","미","신","유","술","해"]
-STEM_TO_ELEMENT = {
-    "갑": "목", "을": "목",
-    "병": "화", "정": "화",
-    "무": "토", "기": "토",
-    "경": "금", "신": "금",
-    "임": "수", "계": "수",
-}
-
-def _parse_pillar(p: str) -> tuple[str, str]:
-    """간지 문자열 분리"""
-    p = (p or "").strip()
-    return (p[0], p[1]) if len(p) >= 2 else ("", "")
-
-def _allowed_chars_from_saju(saju_data: dict) -> dict:
-    """사주 데이터에서 실제 존재하는 천간/지지 추출"""
-    stems, branches = set(), set()
-    for k in ["year_pillar","month_pillar","day_pillar","hour_pillar"]:
-        g, z = _parse_pillar(saju_data.get(k, ""))
-        if g: stems.add(g)
-        if z: branches.add(z)
-    return {"stems": sorted(stems), "branches": sorted(branches)}
-
+# P0: 원국 글자 환각 방지용 기준 데이터
+_ALL_STEMS_BRANCHES: Set[str] = set(list("갑을병정무기경신임계자축인묘진사오미신유술해"))
 
 GUARDRAIL_ADDON = """
 ## Rules
@@ -55,16 +32,13 @@ GUARDRAIL_ADDON = """
 4. Use JSON output only
 """
 
-
 class GptInterpreter:
     def __init__(self):
         self._client = None
     
     def _get_client(self) -> AsyncOpenAI:
-        """Get or create OpenAI client with fresh settings"""
         settings = get_settings()
         api_key = get_openai_api_key()
-        logger.debug("OpenAI client fp=%s tail=%s", key_fingerprint(api_key), key_tail(api_key))
         return AsyncOpenAI(
             api_key=api_key,
             timeout=httpx.Timeout(float(settings.sajuos_timeout), connect=15.0),
@@ -73,8 +47,9 @@ class GptInterpreter:
 
     def _build_truth_anchor(self, saju_data: Dict[str, Any]) -> str:
         """
-        🔥 P0: report_builder의 truth_anchor와 동일 계열.
-        최종 프롬프트에서도 '없는 건 언급 금지'를 다시 못 박아 환각을 줄인다.
+        🔥 P0: 동적 Truth Anchor
+        - 원국(년/월/일/시)에서 등장한 천간/지지 글자만 허용
+        - 금지 글자 목록을 명시하여 환각을 원천 봉쇄
         """
         saju_data = saju_data or {}
         y = saju_data.get("year_pillar") or ""
@@ -82,49 +57,45 @@ class GptInterpreter:
         d = saju_data.get("day_pillar") or ""
         h = saju_data.get("hour_pillar") or ""
 
+        # 실제 존재하는 글자 추출
         pillars = [p for p in [y, m, d, h] if isinstance(p, str) and p]
-        allowed_chars = sorted({ch for p in pillars for ch in p if ch.strip()})
+        joined = "".join(pillars)
+        allowed = sorted(set([ch for ch in joined if ch in _ALL_STEMS_BRANCHES]))
+        allowed_set = set(allowed)
+        
+        # 금지된 글자 목록 생성
+        forbidden = sorted([ch for ch in _ALL_STEMS_BRANCHES if ch not in allowed_set])
+        forbidden_preview = "".join(forbidden[:14]) + ("…" if len(forbidden) > 14 else "")
+        allowed_preview = "".join(allowed) if allowed else "(unknown)"
 
+        # 엔진 확정 데이터 (십성, 오행, 격국)
         summary = saju_data.get("saju_summary") or {}
-        if not isinstance(summary, dict):
-            summary = {}
-
         ten_present = summary.get("ten_gods_present") or saju_data.get("ten_gods_present") or []
-        if not isinstance(ten_present, list):
-            ten_present = []
-
         elements_count = summary.get("elements_count") or {}
-        if not isinstance(elements_count, dict):
-            elements_count = {}
         elements_present = [k for k, v in elements_count.items() if isinstance(v, (int, float)) and v > 0]
-
-        primary_structure = summary.get("primary_structure") or ""
         allowed_structures = summary.get("allowed_structure_names") or []
-        if not isinstance(allowed_structures, list):
-            allowed_structures = []
+        primary_structure = summary.get("primary_structure") or ""
 
-        return f"""[ZERO TOLERANCE RULES]
-- 너는 해석가가 아니라 문장 조립기다. 엔진이 준 팩트만 써라.
-- 4주에 실제로 등장하는 글자만 언급 허용: {''.join(allowed_chars) if allowed_chars else '(unknown)'}
-- 위 목록에 없는 글자(예: 을/병/자 등) 언급 금지. 지장간/추론/일반론 금지.
-- '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
-- 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
-- 격국은 allowed_structure_names 안에서만: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
-- primary_structure(최우선): {primary_structure or '(unknown)'}
-[엔진 확정 4주] year={y} / month={m} / day={d} / hour={h}
-"""
+        return f"""
+## 🚨 ZERO TOLERANCE RULES (절대 준수)
+1) **허용 글자만 언급**: 이 원국에서 언급 가능한 천간/지지 = [{allowed_preview}] 뿐이다.
+2) **금지 글자 언급 금지**: [{forbidden_preview}] 및 허용 밖 글자는 절대 언급하지 마라.
+3) **상상 금지**: 지장간/숨은 글자/추론으로 "있다"고 말하지 마라.
+4) **오타 금지**: '걸록격' 사용 금지. (건록격으로 표기)
+5) **데이터 정합성**: 
+   - '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
+   - 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
+   - 허용된 격국: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
+   - 최우선 격국: {primary_structure or '(unknown)'}
+""".strip()
 
     async def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Tuple[Dict[str, Any], int]:
-        """Direct LLM call - no ping, no model list check"""
         settings = get_settings()
         client = self._get_client()
         full_system = system_prompt + "\n\n" + GUARDRAIL_ADDON
-        last_error = None
         
         for attempt in range(settings.sajuos_max_retries):
             try:
-                logger.info(f"[LLM] Attempt {attempt + 1}/{settings.sajuos_max_retries} | Model: {settings.openai_model}")
-                
                 response = await client.chat.completions.create(
                     model=settings.openai_model,
                     messages=[
@@ -135,69 +106,23 @@ class GptInterpreter:
                     temperature=0.3,
                     response_format={"type": "json_object"}
                 )
-                
                 content = response.choices[0].message.content
                 tokens_used = response.usage.total_tokens if response.usage else 0
-                model_used = response.model
-                
-                logger.info(f"[LLM] Success | Tokens: {tokens_used} | Model: {model_used}")
                 
                 parsed = self._parse_json(content)
                 if parsed:
                     return parsed, tokens_used
-                
-                logger.warning("[LLM] JSON parse failed, retrying")
-                last_error = Exception("JSON parsing failed")
-                
-            except AuthenticationError as e:
-                error_detail = self._extract_error_detail(e)
-                api_key = get_openai_api_key()
-                logger.error(f"[LLM] AUTH_ERROR (401) | {error_detail}")
-                raise Exception(f"Authentication failed: {error_detail}")
-                
-            except RateLimitError as e:
-                error_detail = self._extract_error_detail(e)
-                if "insufficient_quota" in str(e).lower():
-                    logger.error(f"[LLM] QUOTA_EXHAUSTED | {error_detail}")
-                    raise Exception("API quota exhausted - add billing credits")
-                
-                last_error = e
-                delay = self._backoff(attempt, settings)
-                logger.warning(f"[LLM] RATE_LIMIT | Waiting {delay:.1f}s | {error_detail}")
-                await asyncio.sleep(delay)
-                
             except Exception as e:
-                last_error = e
-                logger.error(f"[LLM] UNEXPECTED_ERROR | Type: {type(e).__name__} | {str(e)[:200]}")
-                delay = self._backoff(attempt, settings)
-                await asyncio.sleep(delay)
+                logger.error(f"[LLM] Error: {str(e)}")
+                await asyncio.sleep(1.0)
         
-        raise Exception(f"LLM call failed after {settings.sajuos_max_retries} retries")
-
-    def _extract_error_detail(self, error: Exception) -> str:
-        try:
-            if hasattr(error, 'message'):
-                return str(error.message)[:200]
-            return str(error)[:200]
-        except:
-            return str(error)[:200]
-
-    def _backoff(self, attempt: int, settings) -> float:
-        delay = min(settings.sajuos_retry_base_delay * (2 ** attempt), settings.sajuos_retry_max_delay)
-        return delay * random.uniform(0.5, 1.5)
+        raise Exception("LLM call failed after retries")
 
     def _parse_json(self, content: str) -> Optional[Dict[str, Any]]:
-        if not content: return None
-        text = content.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = lines[1:] if lines[0].startswith("```") else lines
-            lines = lines[:-1] if lines and lines[-1].strip() == "```" else lines
-            text = "\n".join(lines)
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            match = re.search(r'\{[\s\S]*\}', text)
+            return json.loads(content)
+        except:
+            match = re.search(r'\{[\s\S]*\}', content)
             if match:
                 try: return json.loads(match.group())
                 except: pass
@@ -214,79 +139,56 @@ class GptInterpreter:
             result["tokens_used"] = tokens
             return InterpretResponse(**result)
         except Exception as e:
-            logger.error(f"[INTERPRET] Failed | Error: {type(e).__name__} | {str(e)}")
-            return self._fallback(name, type(e).__name__, str(e))
+            logger.error(f"[INTERPRET] Failed: {str(e)}")
+            return self._fallback(name)
 
     def _build_prompt(self, saju_data: Dict, name: str, gender: Optional[str], concern_type: ConcernType, question: str) -> str:
-        year_p = self._get_pillar(saju_data, "year_pillar", "year")
-        month_p = self._get_pillar(saju_data, "month_pillar", "month")
-        day_p = self._get_pillar(saju_data, "day_pillar", "day")
-        hour_p = self._get_pillar(saju_data, "hour_pillar", "hour") or "N/A"
+        # 사주 데이터 정리
+        y = self._get_pillar(saju_data, "year_pillar")
+        m = self._get_pillar(saju_data, "month_pillar")
+        d = self._get_pillar(saju_data, "day_pillar")
+        h = self._get_pillar(saju_data, "hour_pillar") or "N/A"
         
-        day_master = saju_data.get("day_master", day_p[0] if day_p else "")
+        day_master = saju_data.get("day_master", d[0] if d else "")
         day_master_elem = saju_data.get("day_master_element", "")
         
-        gender_map = {"male": "Male", "female": "Female", "other": "Other"}
-        gender_text = gender_map.get(gender, "N/A")
-        
-        concern_map = {
-            ConcernType.LOVE: "Love/Marriage",
-            ConcernType.WEALTH: "Wealth/Finance",
-            ConcernType.CAREER: "Career/Business",
-            ConcernType.GENERAL: "General Fortune"
-        }
-        concern_text = concern_map.get(concern_type, "General")
+        gender_text = "Male" if gender == "male" else "Female" if gender == "female" else "N/A"
         
         saju_summary = saju_data.get("saju_summary", {})
         summary_json = json.dumps(saju_summary, ensure_ascii=False, indent=2) if saju_summary else "{}"
         
-        # 🔥 P0: 진실의 닻(Truth Anchor) 생성 호출
+        # 🔥 P0: Truth Anchor 생성 (지시서 순서 적용)
         truth_anchor = self._build_truth_anchor(saju_data)
         
         return f"""[User Info]
 - Gender: {gender_text}
-- Concern: {concern_text}
+- Concern: {concern_type}
 - Question: {question}
 
 [Saju]
-- Year: {year_p}
-- Month: {month_p}
-- Day: {day_p}
-- Hour: {hour_p}
+- Year: {y} / Month: {m} / Day: {d} / Hour: {h}
 
 [Day Master]
-- Stem: {day_master}
-- Element: {day_master_elem}
+- Stem: {day_master} / Element: {day_master_elem}
+
+{truth_anchor}
 
 [🔴 Ground Truth saju_summary - 이 데이터가 정답이다]
 {summary_json}
 
-[환각 방지 규칙]
-1. 위 saju_summary에 없는 십성/오행을 "있다"고 주장하지 마라.
-2. is_missing_shiksang=true면, 식상/상관이 "있다"고 말하지 마라.
-3. is_missing_jaesung=true면, 재성이 "있다"고 말하지 마라.
-4. allowed_structure_names 외의 격국 이름을 사용하지 마라.
-5. 지장간/숨은천간으로 원국 성분을 창조하지 마라.
-
-{truth_anchor}
 Analyze and respond in JSON format."""
 
-    def _get_pillar(self, data: Dict, key1: str, key2: str) -> str:
-        pillar = data.get(key1, data.get(key2, ""))
+    def _get_pillar(self, data: Dict, key: str) -> str:
+        pillar = data.get(key, "")
         if isinstance(pillar, dict): return pillar.get("ganji", str(pillar))
-        return str(pillar) if pillar else ""
+        return str(pillar)
 
     def _build_result(self, data: Dict[str, Any], name: str) -> Dict[str, Any]:
-        legacy = data.get("legacy_fields", {})
-        summary = data.get("summary") or legacy.get("summary") or "분석 완료"
-        day_master_analysis = data.get("day_master_analysis") or legacy.get("day_master_analysis") or ""
-        blessing = data.get("blessing") or legacy.get("blessing") or f"{name}님을 응원합니다!"
-        
         return {
             "success": True,
-            "summary": summary,
+            "summary": data.get("summary", "분석 완료"),
             "structure": data,
-            "day_master_analysis": day_master_analysis,
+            "day_master_analysis": data.get("day_master_analysis", ""),
             "strengths": data.get("strengths", []),
             "risks": data.get("risks", []),
             "answer": data.get("answer", ""),
@@ -294,25 +196,11 @@ Analyze and respond in JSON format."""
             "lucky_periods": data.get("lucky_periods", []),
             "caution_periods": data.get("caution_periods", []),
             "lucky_elements": data.get("lucky_elements", {}),
-            "blessing": blessing,
-            "disclaimer": data.get("disclaimer", "참고용입니다.")
+            "blessing": data.get("blessing", f"{name}님을 응원합니다!"),
+            "disclaimer": "본 분석 결과는 참고용입니다."
         }
 
-    def _fallback(self, name: str, error_code: str = "UNKNOWN", error_msg: str = "") -> InterpretResponse:
-        return InterpretResponse(success=False, summary="Service error", blessing=f"{name}, we'll be back!", model_used=f"fallback_{error_code}", tokens_used=0)
+    def _fallback(self, name: str) -> InterpretResponse:
+        return InterpretResponse(success=False, summary="Service error", blessing=f"{name}님, 잠시 후 다시 시도해주세요.")
 
 gpt_interpreter = GptInterpreter()
-
-_NORMALIZE_REPLACEMENTS = {
-    "걸록격": "건록격",
-    "걸록": "건록",
-    "비견이 월지": "편인이 월지",
-    "자수와 을목": "원국의 기운",
-}
-
-def normalize_generated_text(text: str) -> str:
-    if not text: return ""
-    out = text
-    for k, v in _NORMALIZE_REPLACEMENTS.items():
-        out = out.replace(k, v)
-    return out

@@ -255,9 +255,8 @@ ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
 
 def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
     """
-    LLM 환각(소설) 원천봉쇄용 "팩트 앵커".
+    🔥 P0-5: LLM 환각(소설) 원천봉쇄용 "팩트 앵커"
     - 엔진이 확정한 값만 나열하고, 없는 건 언급 금지로 못 박는다.
-    - saju_summary가 있으면 그걸 '정답'으로 사용한다.
     """
     saju_data = saju_data or {}
     y = saju_data.get("year_pillar") or ""
@@ -265,7 +264,6 @@ def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
     d = saju_data.get("day_pillar") or ""
     h = saju_data.get("hour_pillar") or ""
 
-    # 4주(연/월/일/시)에 실제로 등장하는 글자(천간/지지)만 "허용"으로 간주
     pillars = [p for p in [y, m, d, h] if isinstance(p, str) and p]
     allowed_chars = sorted({ch for p in pillars for ch in p if ch.strip()})
 
@@ -274,25 +272,14 @@ def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
         summary = {}
 
     ten_present = summary.get("ten_gods_present") or saju_data.get("ten_gods_present") or []
-    if not isinstance(ten_present, list):
-        ten_present = []
-
     elements_count = summary.get("elements_count") or {}
-    if not isinstance(elements_count, dict):
-        elements_count = {}
     elements_present = [k for k, v in elements_count.items() if isinstance(v, (int, float)) and v > 0]
 
     primary_structure = summary.get("primary_structure") or ""
     allowed_structures = summary.get("allowed_structure_names") or []
-    if not isinstance(allowed_structures, list):
-        allowed_structures = []
 
-    # 월지 십성은 엔진이 확정한 값을 최우선으로 고정
     month_branch_ten_god = saju_data.get("month_branch_ten_god")
-    if month_branch_ten_god and isinstance(month_branch_ten_god, str):
-        month_branch_ten_god_txt = month_branch_ten_god
-    else:
-        month_branch_ten_god_txt = ""
+    month_branch_ten_god_txt = str(month_branch_ten_god) if month_branch_ten_god else ""
 
     return f"""## 🚨 ZERO TOLERANCE RULES (절대 준수 / 위반시 실패)
 너는 명리학자가 아니다. 너는 **엔진이 확정한 팩트만** 문장으로 정리하는 '작가'다.
@@ -304,7 +291,6 @@ def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
 ### 2) 십성/오행은 정답지(saju_summary)만 따른다
 - 원국에 '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
 - 원국에 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
-- saju_summary에 없는 십성/오행을 "있다"고 말하면 실패.
 
 ### 3) 격국/용어 제한
 - 격국은 allowed_structure_names 중에서만 사용: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
@@ -321,7 +307,6 @@ def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
 def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
     spec = PREMIUM_SECTIONS.get(section_id)
     if not spec:
-        logger.error(f"[Builder] Invalid section_id: {section_id}")
         return ""
     title = spec.title
     min_chars = spec.min_chars
@@ -334,7 +319,7 @@ def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict
     if existing_contents:
         existing_block = f"\n## 이전 섹션 (반복 금지)\n{chr(10).join(existing_contents[-2:])}\n"
     
-    # 🔥 P0-5: 업데이트된 진실의 닻(Truth Anchor) 블록 적용
+    # 🔥 P0-5: 진실의 닻(Truth Anchor) 블록 적용
     fact_ctx = build_truth_anchor(saju_data or {})
     
     return f"""너는 [{title}] 전문 컨설턴트다.
@@ -440,7 +425,6 @@ class PremiumReportBuilder:
                     "error": str(e)[:200]
                 }
                 results.append(result)
-                logger.warning(f"[Builder] 🔄 section={sid} | fallback_len={len(fallback_body)}")
         
         if job_id:
             await job_store.complete_job(job_id, {"sections": len(results)})
@@ -449,9 +433,6 @@ class PremiumReportBuilder:
     async def _generate_section_safe(self, section_id: str, saju_data: Dict, allocation: SectionRuleCardAllocation, target_year: int, survey_data: Dict, engine_headline: str, existing_contents: List[str], job_id: str = None) -> Dict[str, Any]:
         """🔥 P0-1: 빈 섹션 절대 금지 - 카드 0개면 폴백"""
         spec = PREMIUM_SECTIONS.get(section_id)
-        if not spec:
-            logger.error(f"[Builder] Invalid section_id: {section_id}")
-            raise ValueError(f"Invalid section_id: {section_id}")
         
         # 🔥 P0-1(A): 카드 0개면 LLM 호출 X, 즉시 폴백
         if allocation.allocated_count == 0:
@@ -479,9 +460,6 @@ class PremiumReportBuilder:
         )
         user_prompt = self._build_user_prompt(saju_data, allocation, target_year)
         
-        llm_response_len = 0
-        body_markdown = ""
-        
         async with self._semaphore:
             try:
                 response = await self._client.chat.completions.create(
@@ -494,16 +472,12 @@ class PremiumReportBuilder:
                     max_tokens=4000
                 )
                 body_markdown = response.choices[0].message.content or ""
-                llm_response_len = len(body_markdown)
             except Exception as e:
                 logger.error(f"[Builder] GPT 호출 실패: {section_id} | {e}")
-                # 🔥 P0-1(B): 예외 시 폴백
                 body_markdown = generate_fallback_body(section_id, engine_headline, survey_data)
-                llm_response_len = 0
         
         # LLM 응답이 너무 짧으면 폴백
         if len(body_markdown) < 200:
-            logger.warning(f"[Builder] section={section_id} | llm_response too short ({len(body_markdown)}) → fallback")
             body_markdown = generate_fallback_body(section_id, engine_headline, survey_data)
         
         body_markdown = self._enforce_engine_headline(body_markdown, engine_headline or spec.fallback_headline)
@@ -519,7 +493,7 @@ class PremiumReportBuilder:
             "engine_headline": engine_headline or spec.fallback_headline,
             "rulecard_ids": allocation.allocated_card_ids,
             "char_count": len(body_markdown),
-            "llm_response_len": llm_response_len,
+            "llm_response_len": len(body_markdown),
             "leaked_tokens": leaked
         }
     
@@ -561,31 +535,7 @@ class PremiumReportBuilder:
         body_stripped = body_markdown.lstrip()
         if body_stripped.startswith(headline):
             return body_markdown
-        if len(body_stripped) > 50 and headline[:30] in body_stripped[:100]:
-            return body_markdown
-        logger.warning(f"[Builder] engine_headline 강제 삽입")
         return f"{headline}\n\n{body_stripped}"
-    
-    async def regenerate_single_section(self, section_id: str, saju_data: Dict, rulecards: List[Dict], feature_tags: List[str] = None, target_year: int = 2026, user_question: str = "", survey_data: Dict = None):
-        self._client = self._get_client()
-        self._semaphore = asyncio.Semaphore(1)
-        spec = PREMIUM_SECTIONS.get(section_id)
-        if not spec:
-            logger.error(f"[Builder] Invalid section_id: {section_id}")
-            raise ValueError(f"Invalid section_id: {section_id}")
-        alloc = allocate_rulecards_to_section(rulecards, section_id, spec.max_cards, set(), survey_data)
-        engine_headline = extract_engine_headline(alloc.cards)
-        result = await self._generate_section_safe(
-            section_id=section_id,
-            saju_data=saju_data,
-            allocation=alloc,
-            target_year=target_year,
-            survey_data=survey_data,
-            engine_headline=engine_headline,
-            existing_contents=[]
-        )
-        return {"success": True, "section": result}
-
 
 premium_report_builder = PremiumReportBuilder()
 report_builder = premium_report_builder
