@@ -9,6 +9,7 @@ Premium section generator:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -18,6 +19,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.services.truth_anchor import build_truth_anchor
+
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------
@@ -107,20 +110,22 @@ def build_system_prompt(
     target_year: int,
     user_question: str = "",
     existing_contents: Optional[List[str]] = None,
+    truth_anchor_override: Optional[str] = None,
 ) -> str:
     spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
     title = spec.title
     min_chars = spec.min_chars
     master_body = get_master_body_markdown(section_id)
 
-    # dynamic truth anchor (P0)
-    truth_anchor = build_truth_anchor(
-        saju_data,
-        target_year=target_year,
-        # optionally force these if engine knows:
-        force_gyeok=saju_data.get("primary_structure") or None,
-        force_month_tengod=saju_data.get("month_tengod") or None,
-    )
+    # dynamic truth anchor (P0) - 외부에서 주입된 것이 있으면 사용, 없으면 자체 생성
+    if truth_anchor_override:
+        truth_anchor = truth_anchor_override
+    else:
+        truth_anchor = build_truth_anchor(
+            saju_data=saju_data,
+            target_year=target_year,
+            section_id=section_id,
+        )
 
     # compact rulecards text (top 8)
     cards_text = []
@@ -226,6 +231,7 @@ class PremiumReportBuilder:
         user_question: str = "",
         existing_contents: Optional[List[str]] = None,
         job_id: Optional[str] = None,
+        truth_anchor: Optional[str] = None,  # 외부에서 주입 가능
     ) -> Dict[str, Any]:
         system_prompt = build_system_prompt(
             section_id=section_id,
@@ -235,9 +241,15 @@ class PremiumReportBuilder:
             target_year=target_year,
             user_question=user_question,
             existing_contents=existing_contents,
+            truth_anchor_override=truth_anchor,
         )
         user_prompt = f"{ENGINE_HEADLINE}\n섹션 [{section_id}] 내용을 작성하라."
-        body = await self._call_openai(system_prompt, user_prompt)
+        
+        try:
+            body = await self._call_openai(system_prompt, user_prompt)
+        except Exception as e:
+            logger.error(f"[Builder] OpenAI 호출 실패: {e}")
+            body = f"[섹션 생성 오류: {str(e)[:100]}]"
 
         spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
 

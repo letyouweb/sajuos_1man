@@ -7,12 +7,15 @@ We inject Truth Anchor so the model cannot invent stems/ten-gods.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, Optional
 
 import httpx
 
 from app.services.truth_anchor import build_truth_anchor
+
+logger = logging.getLogger(__name__)
 
 
 class GPTInterpreter:
@@ -33,7 +36,12 @@ class GPTInterpreter:
         summary = saju_data.get("saju_summary") or {}
         summary_json = json.dumps(summary, ensure_ascii=False, indent=2)
 
-        truth_anchor = build_truth_anchor(saju_data, target_year=target_year)
+        # 🔥 P0: 올바른 시그니처로 호출
+        truth_anchor = build_truth_anchor(
+            saju_data=saju_data,
+            target_year=target_year,
+            section_id="interpret",
+        )
 
         return f"""{truth_anchor}
 
@@ -72,7 +80,11 @@ class GPTInterpreter:
 
     async def interpret(self, saju_data: Dict[str, Any], question: str, target_year: Optional[int] = None) -> str:
         prompt = self._build_prompt(saju_data, question, target_year=target_year)
-        return await self._call_openai(prompt)
+        try:
+            return await self._call_openai(prompt)
+        except Exception as e:
+            logger.error(f"[Interpreter] OpenAI 호출 실패: {e}")
+            return f"[해석 생성 오류: {str(e)[:100]}]"
 
 
 gpt_interpreter = GPTInterpreter()
