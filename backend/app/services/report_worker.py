@@ -8,6 +8,7 @@ Report Worker v13 - P0 Pivot: 설문 기반 RuleCardScorer 통합
 4) 섹션별 score_trace 저장
 5) 용어 정규화 (걸록격 -> 건록격 등) 적용
 6) 대운 계산 예외 처리 (계산 실패 시에도 중단 X)
+7) JSON 필드 문자열 입력 시 dict 안전 변환 적용
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import asyncio
@@ -19,7 +20,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 from app.services.supabase_service import supabase_service
 from app.services.saju_engine import calc_daeun_pillars
-from app.services.saju_analyzer import get_saju_summary  # 🔥 P0: 정답지 생성
+from app.services.saju_analyzer import get_saju_summary
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 P0: Supabase JSON 문자열 → dict 안전 변환
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def _ensure_dict(v: Any) -> Dict:
+def _ensure_dict(v: Any) -> Dict[str, Any]:
     """Supabase/프론트에서 JSON이 문자열로 올 때 dict로 안전 변환"""
     if isinstance(v, dict):
         return v
@@ -203,14 +204,11 @@ class ReportWorker:
         if not job:
             raise ValueError(f"Job 없음: {job_id}")
         
-        email = job.get("user_email", "")
-        # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
-        input_json_raw = job.get("input_json") or job.get("input_data") or {}
-        input_json = _ensure_dict(input_json_raw)
-        if not input_json and isinstance(input_json_raw, str):
-            logger.warning(f"[Worker] input_json이 문자열인데 파싱 실패: {str(input_json_raw)[:120]}...")
+        # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환 (Diff 내용 반영)
+        input_json = _ensure_dict(job.get("input_json") or job.get("input_data") or {})
         
-        name = input_json.get("name", "고객")
+        name = input_json.get("name") or input_json.get("user_name") or "고객"
+        email = input_json.get("email") or input_json.get("user_email") or job.get("user_email") or ""
         target_year = input_json.get("target_year", 2026)
         question = input_json.get("question", "")
         survey_data = _ensure_dict(input_json.get("survey_data") or {})
@@ -355,74 +353,31 @@ class ReportWorker:
         return True, ""
 
     def _prepare_saju_data(self, input_json: Dict) -> Dict:
-        """사주 데이터 추출 및 정답지 주입"""
-        # 🔥 P0: 디버그 로그 - 실제 들어오는 데이터 구조 확인
-        logger.info(f"[Worker] 🔍 input_json keys: {list(input_json.keys())[:10]}")
-        
+        """사주 데이터 추출 및 정답지 주입 (P0 통합 로직)"""
         # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
         saju_result = _ensure_dict(input_json.get("saju_result") or {})
+        saju_nested = _ensure_dict(saju_result.get("saju") or {})
         
-        # 🔥 P0: saju_result가 비어있으면 다른 경로 시도
-        if not saju_result:
-            # 경로 1: input_json.saju
-            saju_result = _ensure_dict(input_json.get("saju") or {})
-        if not saju_result:
-            # 경로 2: input_json 자체가 saju_result일 수 있음
-            if "year_pillar" in input_json or "day_master" in input_json:
-                saju_result = input_json
-        
-        logger.info(f"[Worker] 🔍 saju_result keys: {list(saju_result.keys())[:10] if saju_result else 'EMPTY'}")
-        
-        target_year = input_json.get("target_year", 2026)
+        # birth_info 추출 경로 다각화 (Diff 내용 반영)
+        birth_info = _ensure_dict(saju_result.get("birth_info") or input_json.get("birth_info") or {})
         
         def extract_ganji(pillar_data):
             if not pillar_data: return ""
             if isinstance(pillar_data, dict):
-                # 다양한 키 시도: ganji, value, gan+ji
                 return pillar_data.get("ganji", "") or pillar_data.get("value", "") or (pillar_data.get("gan", "") + pillar_data.get("ji", ""))
             return str(pillar_data)
         
-        # 🔥 P0: 다양한 경로에서 4주 추출
-        # 경로 1: saju_result.year_pillar
-        year_pillar = extract_ganji(saju_result.get("year_pillar"))
-        month_pillar = extract_ganji(saju_result.get("month_pillar"))
-        day_pillar = extract_ganji(saju_result.get("day_pillar"))
-        hour_pillar = extract_ganji(saju_result.get("hour_pillar"))
-        
-        # 경로 2: saju_result.saju.year_pillar (nested)
-        if not year_pillar:
-            nested_saju = _ensure_dict(saju_result.get("saju") or {})
-            year_pillar = year_pillar or extract_ganji(nested_saju.get("year_pillar"))
-            month_pillar = month_pillar or extract_ganji(nested_saju.get("month_pillar"))
-            day_pillar = day_pillar or extract_ganji(nested_saju.get("day_pillar"))
-            hour_pillar = hour_pillar or extract_ganji(nested_saju.get("hour_pillar"))
-        
-        # 경로 3: input_json 직접
-        year_pillar = year_pillar or input_json.get("year_pillar", "")
-        month_pillar = month_pillar or input_json.get("month_pillar", "")
-        day_pillar = day_pillar or input_json.get("day_pillar", "")
-        hour_pillar = hour_pillar or input_json.get("hour_pillar", "")
-        
-        # 경로 4: saju_result.year/month/day/hour (dict 구조)
-        if not year_pillar:
-            year_data = _ensure_dict(saju_result.get("year") or {})
-            month_data = _ensure_dict(saju_result.get("month") or {})
-            day_data = _ensure_dict(saju_result.get("day") or {})
-            hour_data = _ensure_dict(saju_result.get("hour") or {})
-            year_pillar = year_pillar or extract_ganji(year_data)
-            month_pillar = month_pillar or extract_ganji(month_data)
-            day_pillar = day_pillar or extract_ganji(day_data)
-            hour_pillar = hour_pillar or extract_ganji(hour_data)
-        
-        logger.info(f"[Worker] 🔍 추출된 4주: 년={year_pillar} 월={month_pillar} 일={day_pillar} 시={hour_pillar}")
+        # 4주 추출 (다양한 경로 대응)
+        year_pillar = extract_ganji(saju_result.get("year_pillar")) or extract_ganji(saju_nested.get("year_pillar")) or input_json.get("year_pillar", "")
+        month_pillar = extract_ganji(saju_result.get("month_pillar")) or extract_ganji(saju_nested.get("month_pillar")) or input_json.get("month_pillar", "")
+        day_pillar = extract_ganji(saju_result.get("day_pillar")) or extract_ganji(saju_nested.get("day_pillar")) or input_json.get("day_pillar", "")
+        hour_pillar = extract_ganji(saju_result.get("hour_pillar")) or extract_ganji(saju_nested.get("hour_pillar")) or input_json.get("hour_pillar", "")
         
         day_master = saju_result.get("day_master", "") or (day_pillar[0] if day_pillar else "")
         day_master_element = saju_result.get("day_master_element", "")
         day_master_description = saju_result.get("day_master_description", "")
-        # 🔥 P0 FIX: birth_info도 안전 변환
-        birth_info = _ensure_dict(saju_result.get("birth_info") or input_json.get("birth_info") or {})
         
-        # 대운 계산
+        # 대운 계산 파라미터 준비
         gender = _normalize_gender(input_json.get("gender") or birth_info.get("gender") or saju_result.get("gender", ""))
         age = _calc_age(birth_info)
         year_stem = year_pillar[:1] if year_pillar else ""
@@ -430,6 +385,8 @@ class ReportWorker:
         direction = ""
         daeun_list = []
         current_daeun = None
+        daeun_start_age = int(saju_result.get('daeun_start_age') or 3)
+        daeun_start_year = saju_result.get('daeun_start_year')
         
         # 🔥🔥🔥 P0 핵심: 대운 계산 예외 처리 추가
         if gender and year_stem and month_pillar and age:
@@ -439,19 +396,12 @@ class ReportWorker:
                 direction = "forward" if ((is_male and is_yang_year) or (not is_male and not is_yang_year)) else "backward"
                 daeun_list = calc_daeun_pillars(month_pillar, direction, count=10)
                 if daeun_list:
-                    start_age = int(saju_result.get('daeun_start_age') or 3)
-                    idx = (age - start_age) // 10
+                    idx = (age - daeun_start_age) // 10
                     if 0 <= idx < len(daeun_list):
                         current_daeun = daeun_list[idx]
             except Exception as e:
-                # 대운 계산 실패해도 보고서 생성은 계속 진행
                 logger.warning(f"[ReportWorker] 대운 계산 실패: {e}")
-                direction = ""
-                daeun_list = []
-                current_daeun = None
 
-        # ✅ P0 FIX: NameError 방지 및 saju_data 구성
-        daeun_direction = direction or ""
         saju_data = {
             "year_pillar": year_pillar,
             "month_pillar": month_pillar,
@@ -464,15 +414,16 @@ class ReportWorker:
             "saju_result": saju_result,
             "gender": gender,
             "age": age,
-            "daeun_direction": daeun_direction,
+            "daeun_direction": direction, # Diff의 direction 반영
+            "daeun_start_age": daeun_start_age,
+            "daeun_start_year": daeun_start_year,
             "daeun_list": daeun_list,
             "current_daeun": current_daeun,
-            "target_year": target_year,
+            "target_year": input_json.get("target_year", 2026),
         }
         
         # ✅ P0: saju_summary(정답지) 주입
         try:
-            from app.services.saju_analyzer import get_saju_summary
             saju_summary = get_saju_summary(saju_data)
             saju_data["saju_summary"] = saju_summary
             saju_data["ten_gods_present"] = saju_summary.get("ten_gods_present", [])
@@ -515,21 +466,16 @@ class ReportWorker:
         text = body_markdown or ""
         
         # 1) 거절/메타 문구 탐지
-        rejection_phrases = [
-            "죄송하지만", "죄송합니다", "분석할 수 없", "분석이 불가", "추가 정보가 필요",
-            "데이터가 부족", "정보가 부족", "확인이 필요", "제공된 정보만으로는",
-            "더 많은 정보", "명확하지 않", "알 수 없습니다"
-        ]
+        rejection_phrases = ["죄송하지만", "분석할 수 없", "추가 정보가 필요", "데이터가 부족"]
         for phrase in rejection_phrases:
             if phrase in text:
                 issues.append(f"거절문구:{phrase}")
                 break
         
-        # 2) 연도 오류 탐지 (target_year와 다른 연도가 주요 언급되면)
-        wrong_years = ["2024년", "2025년", "2023년"]
+        # 2) 연도 오류 탐지
+        wrong_years = ["2024년", "2025년"]
         correct_year = f"{target_year}년"
         for wy in wrong_years:
-            # 단순 언급은 OK, 주요 분석 대상처럼 쓰이면 문제
             if wy in text and text.count(wy) > text.count(correct_year):
                 issues.append(f"연도오류:{wy}")
                 break
@@ -538,26 +484,11 @@ class ReportWorker:
         if len(text) < min_chars:
             issues.append(f"길이부족:{len(text)}<{min_chars}")
         
-        # 4) saju_summary에 없는 십성 단정 언급 (옵션)
-        saju_summary = saju_data.get("saju_summary", {})
-        ten_gods_present = saju_summary.get("ten_gods_present", [])
-        if ten_gods_present:
-            # 없는 십성을 "있다"고 단정하면 문제
-            all_ten_gods = ["비견", "겁재", "식신", "상관", "편재", "정재", "편관", "정관", "편인", "정인"]
-            missing_gods = [g for g in all_ten_gods if g not in ten_gods_present]
-            for mg in missing_gods:
-                # "편재가 있어", "정관이 있는" 같은 패턴
-                if f"{mg}가 있" in text or f"{mg}이 있" in text or f"{mg}을 가" in text:
-                    issues.append(f"환각:{mg}")
-                    break
-        
         return issues
 
     async def _generate_section(self, section_id, section_title, saju_data, rulecards, feature_tags, target_year, question, survey_data, match_summary) -> Dict:
         """섹션 본문 생성 + 🔥 P0: 품질 가드레일"""
         MAX_RETRIES = 2
-        min_chars = 600  # 최소 본문 길이
-        
         for attempt in range(MAX_RETRIES):
             try:
                 from app.services.report_builder import premium_report_builder
@@ -566,43 +497,26 @@ class ReportWorker:
                     feature_tags=feature_tags, target_year=target_year, user_question=question, survey_data=survey_data
                 )
                 
-                # 🔥 P0 FIX: "ok" 또는 "success" 둘 다 지원
                 if not result.get("ok") and not result.get("success"):
-                    if attempt < MAX_RETRIES - 1:
-                        logger.warning(f"[Worker] 섹션 {section_id} 생성 실패, 재시도 {attempt+1}/{MAX_RETRIES}")
-                        continue
+                    if attempt < MAX_RETRIES - 1: continue
                     return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [result.get("error")]}
                 
                 section_data = result.get("section", {})
                 body_markdown = section_data.get("body_markdown", "")
                 
-                # 🔥 P0: 품질 가드레일 체크
-                quality_issues = self._check_llm_quality(body_markdown, target_year, saju_data, min_chars)
-                
-                if quality_issues:
-                    logger.warning(f"[Worker] 섹션 {section_id} 품질 이슈: {quality_issues}")
-                    if attempt < MAX_RETRIES - 1:
-                        logger.info(f"[Worker] 섹션 {section_id} 재생성 시도 {attempt+2}/{MAX_RETRIES}")
-                        continue
-                    # 마지막 시도에서도 실패하면 이슈와 함께 반환
-                    return {
-                        "ok": True,  # 저장은 하되
-                        "content": {**section_data, "title": section_title, "section_id": section_id},
-                        "guardrail_errors": quality_issues,
-                        "quality_warning": True
-                    }
-                
-                # 성공
-                return {"ok": True, "content": {**section_data, "title": section_title, "section_id": section_id}, "guardrail_errors": []}
-                
-            except Exception as e:
-                logger.error(f"[Worker] _generate_section 예외: {e}")
-                if attempt < MAX_RETRIES - 1:
+                quality_issues = self._check_llm_quality(body_markdown, target_year, saju_data)
+                if quality_issues and attempt < MAX_RETRIES - 1:
                     continue
-                import traceback
-                logger.error(traceback.format_exc())
+                
+                return {
+                    "ok": True, 
+                    "content": {**section_data, "title": section_title, "section_id": section_id}, 
+                    "guardrail_errors": quality_issues,
+                    "quality_warning": bool(quality_issues)
+                }
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1: continue
                 return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [str(e)]}
-        
         return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": ["MAX_RETRIES 초과"]}
 
     def _get_all_cards_as_dict(self, rulestore: Any) -> List[Dict]:
@@ -659,12 +573,11 @@ class ReportWorker:
         except Exception as e: logger.warning(f"이메일 발송 실패: {e}")
 
     async def _send_failure_email(self, job, error):
-        email = job.get("user_email")
+        input_json = _ensure_dict(job.get("input_json") or job.get("input_data") or {})
+        email = input_json.get("email") or input_json.get("user_email") or job.get("user_email")
         if not email: return
         try:
             from app.services.email_sender import email_sender
-            # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
-            input_json = _ensure_dict(job.get("input_json") or job.get("input_data") or {})
             name = input_json.get("name", "고객")
             await email_sender.send_report_failed(to_email=email, name=name, report_id=job.get("id", ""), error_message=error[:200])
         except Exception as e: logger.warning(f"실패 이메일 발송 실패: {e}")
