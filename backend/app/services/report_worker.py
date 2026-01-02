@@ -711,7 +711,10 @@ class ReportWorker:
         else:
             logger.warning(f"[Worker] ⚠️ 대운 계산 불가: gender={gender} | year_stem={year_stem} | month_pillar={month_pillar} | age={age}")
         
-        return {
+        # ✅ P0 FIX: NameError 방지 + 이후 saju_summary 주입 로직이 실제로 실행되도록
+        daeun_direction = direction or ""
+
+        saju_data = {
             "year_pillar": year_pillar,
             "month_pillar": month_pillar,
             "day_pillar": day_pillar,
