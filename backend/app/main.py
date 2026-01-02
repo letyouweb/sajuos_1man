@@ -167,6 +167,43 @@ async def startup():
         import traceback
         logger.warning(traceback.format_exc())
     
+    # 🔥 P0: DB 걸록 잔존 체크 + 자동 패치
+    try:
+        import sqlite3
+        import os
+        db_path = None
+        for p in [Path(__file__).parent.parent / "data" / "sajuos_master.db", Path("/app/data/sajuos_master.db")]:
+            if p.exists():
+                db_path = str(p)
+                break
+        
+        if db_path:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cols = ["trigger_json", "mechanism", "interpretation", "action", "tags_json", "cautions_json"]
+            total_typo = 0
+            for c in cols:
+                try:
+                    n = cur.execute(f"SELECT COUNT(*) FROM rule_cards WHERE {c} LIKE '%걸록%'").fetchone()[0]
+                    total_typo += n
+                except:
+                    pass
+            
+            if total_typo > 0:
+                logger.warning(f"⚠️ [RuleCards] '걸록' 오타 {total_typo}개 발견! 자동 패치 실행...")
+                for c in cols:
+                    try:
+                        cur.execute(f"UPDATE rule_cards SET {c} = REPLACE({c}, '걸록', '건록') WHERE {c} LIKE '%걸록%'")
+                    except:
+                        pass
+                conn.commit()
+                logger.info(f"✅ [RuleCards] '걸록' → '건록' 자동 패치 완료")
+            else:
+                logger.info(f"✅ [RuleCards] '걸록' 오타 없음 (정상)")
+            conn.close()
+    except Exception as typo_err:
+        logger.debug(f"[RuleCards] 오타 체크 스킵: {typo_err}")
+    
     logger.info(f"✅ Startup 완료")
 
 
