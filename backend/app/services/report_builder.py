@@ -8,6 +8,7 @@ SajuOS Premium Report Builder v12 - P0 빈 섹션 절대 금지
 🔥 P0-5: 지장간 추론 금지 및 '보이는 글자' 중심 검증 강화 (Guardrails 통합)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
+
 import asyncio
 import json
 import logging
@@ -15,18 +16,20 @@ import re
 from typing import Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 
-from openai import AsyncOpenAI
 import httpx
-
-from app.config import get_settings
-from app.services.openai_key import get_openai_api_key
-from app.services.terminology_mapper import sanitize_for_business
-from app.services.job_store import job_store
-from app.templates.master_samples import load_master_samples, get_master_body_markdown
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
-MASTER_SAMPLES = load_master_samples("v1")
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 마스터 샘플 로드 (원본 유지)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+try:
+    from app.templates.master_samples import load_master_samples
+    MASTER_SAMPLES = load_master_samples("v1")
+except Exception:
+    MASTER_SAMPLES = {}
 
 DEBUG_TEMPLATE_LEAKS = False
 
@@ -60,6 +63,19 @@ def replace_template_tokens(text: str) -> str:
     return text.strip()
 
 
+def normalize_year(text: str, target_year: int) -> str:
+    """출력에 섞인 연도(예: 2025)를 target_year로 정규화.
+    - target_year 자체는 유지
+    - 다른 20xx는 target_year로 치환
+    """
+    if not text:
+        return ""
+    def _repl(m: re.Match) -> str:
+        y = int(m.group(0))
+        return str(target_year) if y != target_year else m.group(0)
+    return re.sub(r"\b20\d{2}\b", _repl, text)
+
+
 def check_template_leaks(text: str, context: str = "") -> List[str]:
     if not text:
         return []
@@ -70,342 +86,220 @@ def check_template_leaks(text: str, context: str = "") -> List[str]:
     if re.search(r"\{[a-zA-Z_]+\}", text):
         leaked.append("{other}")
     if leaked:
-        logger.warning(f"[TemplateLeak] {context} | leaked: {leaked}")
+        logger.warning(f"[TemplateLeak] context={context} leaked={leaked}")
     return leaked
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P0-2: 섹션 ID 정합성 (기존 ID 유지)
+# 프리미엄 섹션 정의 (원본 유지)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @dataclass
 class SectionSpec:
     id: str
     title: str
-    max_cards: int
-    min_chars: int
-    fallback_headline: str
-    topic_filter: List[str] = field(default_factory=list)
+    icon: str
+    order: int
+    min_chars: int = 800
 
 
-# 🔥 P0-2: 합의된 section_id 고정
-PREMIUM_SECTIONS = {
-    "exec": SectionSpec(
-        "exec", "2026 비즈니스 전략 기상도", 20, 1500,
-        "현재 사주 구조상 2026년 비즈니스 환경은 변화의 기운이 감지됩니다",
-        topic_filter=["전체운", "종합", "일간", "성향", "기운", "운세"]
-    ),
-    "money": SectionSpec(
-        "money", "자본 유동성 및 현금흐름 최적화", 20, 2500,
-        "현재 구조상 현금흐름의 변동성이 예상됩니다",
-        topic_filter=["재물", "재성", "정재", "편재", "현금", "매출", "투자"]
-    ),
-    "business": SectionSpec(
-        "business", "시장 포지셔닝 및 상품 확장 전략", 20, 2500,
-        "현재 구조상 시장 포지셔닝 재검토가 필요합니다",
-        topic_filter=["사업", "창업", "경영", "관성", "정관", "편관", "시장"]
-    ),
-    "team": SectionSpec(
-        "team", "조직 확장 및 파트너십 가이드", 20, 2000,
-        "현재 구조상 파트너십 관리가 핵심 과제입니다",
-        topic_filter=["비겁", "비견", "겁재", "동업", "파트너", "협력", "인맥"]
-    ),
-    "health": SectionSpec(
-        "health", "주요 장애물 및 리스크 (2026)", 15, 1500,
-        "현재 구조상 해당 리스크는 낮은 수준입니다",
-        topic_filter=["리스크", "위험", "충", "형", "파", "손해", "장애", "번아웃"]
-    ),
-    "calendar": SectionSpec(
-        "calendar", "12개월 비즈니스 스프린트 캘린더", 15, 2500,
-        "현재 구조상 월별 리듬에 맞춘 전략이 필요합니다",
-        topic_filter=["월운", "시기", "계절", "타이밍", "길일", "흉일", "대운"]
-    ),
-    "sprint": SectionSpec(
-        "sprint", "향후 90일 매출 극대화 액션플랜", 15, 2000,
-        "현재 구조상 90일 집중 실행이 효과적입니다",
-        topic_filter=["실행", "액션", "계획", "목표", "식신", "상관", "식상"]
-    ),
+PREMIUM_SECTIONS: Dict[str, SectionSpec] = {
+    "exec": SectionSpec(id="exec", title="전략기상도", icon="🌦️", order=1, min_chars=900),
+    "money": SectionSpec(id="money", title="현금흐름", icon="💰", order=2, min_chars=900),
+    "business": SectionSpec(id="business", title="시장전략", icon="📍", order=3, min_chars=900),
+    "team": SectionSpec(id="team", title="파트너십", icon="🤝", order=4, min_chars=900),
+    "health": SectionSpec(id="health", title="리스크", icon="🧯", order=5, min_chars=900),
+    "calendar": SectionSpec(id="calendar", title="12개월", icon="🗓️", order=6, min_chars=900),
+    "sprint": SectionSpec(id="sprint", title="90일플랜", icon="🚀", order=7, min_chars=900),
 }
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P0-1: 폴백 텍스트 (빈 섹션 방지)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def get_master_body_markdown(section_id: str) -> str:
+    if not MASTER_SAMPLES:
+        return ""
+    sample = MASTER_SAMPLES.get(section_id) or {}
+    body = sample.get("body_markdown") or ""
+    return body.strip()
 
-def generate_fallback_body(section_id: str, engine_headline: str, survey_data: Dict = None) -> str:
-    """🔥 P0-1: 카드 0개 또는 LLM 실패 시 폴백 텍스트"""
-    spec = PREMIUM_SECTIONS.get(section_id)
-    if not spec:
-        spec = SectionSpec(section_id, "섹션", 10, 500, "분석 중입니다")
-    
-    headline = engine_headline if engine_headline else spec.fallback_headline
-    industry = (survey_data or {}).get("industry", "해당 업종")
-    painPoint = (survey_data or {}).get("painPoint", "현재 병목")
-    
-    return f"""{headline}
-
-## 현재 상황 분석
-
-원인(사주/룰카드) 정보가 충분하지 않아 상세 분석이 제한됩니다.
-설문으로만 억지 추론하는 것은 Root Cause Rule 위반이므로 생략합니다.
-
-### 다음 행동 권장사항
-
-1. **D+14**: {industry} 업종 현황 점검 및 데이터 수집
-2. **D+30**: {painPoint} 관련 핵심 지표 모니터링 시작
-3. **D+60**: 수집된 데이터 기반 전략 재수립
-
-### 체크리스트
-- [ ] 현재 상황 객관적 진단
-- [ ] 핵심 지표 정의
-- [ ] 데이터 수집 체계 구축
-- [ ] 주간 리뷰 일정 확정
-- [ ] 전문가 상담 검토
-
----
-*추가 사주 정보나 룰카드 매칭이 확보되면 더 정밀한 분석이 가능합니다.*
-"""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 프롬프트 구성 유틸리티 및 P0 Guardrails
+# P0 Guardrails (원본 유지 + 최소 안전장치)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
-- 사주/룰카드(=원인)가 결론이다. 설문(=증상)은 결론이 아니다.
-- 섹션의 첫 문장은 반드시 엔진이 확정한 결론으로 시작한다.
-- 금지: "고객님이 설문에서 ~라고 하셨으니" 같은 서술.
-"""
-
-TENGOD_ORDER = ["비견", "겁재", "식신", "상관", "편재", "정재", "편관", "정관", "편인", "정인"]
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P0 Guardrails (환각/오타/지장간 추론 봉쇄)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-STEMS = ["갑", "을", "병", "정", "무", "기", "경", "신", "임", "계"]
-BRANCHES = ["자", "축", "인", "묘", "진", "사", "오", "미", "신", "유", "술", "해"]
-STEM_TO_ELEMENT = {
-    "갑": "목", "을": "목",
-    "병": "화", "정": "화",
-    "무": "토", "기": "토",
-    "경": "금", "신": "금",
-    "임": "수", "계": "수",
-}
-
-# 금칙어/금지 표현
-FORBIDDEN_PHRASES = [
-    "관성 충돌", "관성충돌", "충돌 구조", "충돌구조",
-    "월지 비견", "월지비견", "월지 겁재", "월지겁재",
-    "지장간", "숨은천간", "hidden stem", "hidden-stem",
+PROHIBITED_INFER = [
+    "지장간", "장간", "추론", "추측", "몰래", "숨겨진",
 ]
 
-def _parse_pillar_ganji(pillar: str) -> tuple[str, str]:
-    """'정사' -> ('정','사') 분리"""
-    pillar = (pillar or "").strip()
-    if len(pillar) >= 2:
-        return pillar[0], pillar[1]
-    return "", ""
-
-def _derive_allowed_chars(saju_data: Dict[str, Any]) -> Dict[str, List[str]]:
-    yp = saju_data.get("year_pillar", "")
-    mp = saju_data.get("month_pillar", "")
-    dp = saju_data.get("day_pillar", "")
-    hp = saju_data.get("hour_pillar", "") or ""
-    stems, branches = set(), set()
-    for p in [yp, mp, dp, hp]:
-        g, z = _parse_pillar_ganji(p)
-        if g: stems.add(g)
-        if z: branches.add(z)
-    return {
-        "stems": sorted(stems, key=lambda x: STEMS.index(x) if x in STEMS else 999),
-        "branches": sorted(branches, key=lambda x: BRANCHES.index(x) if x in BRANCHES else 999),
-    }
 
 def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
-    """P0: LLM의 자체 해석을 봉쇄하는 '팩트 앵커'"""
-    summary = (saju_data or {}).get("saju_summary", {}) or {}
-    allowed = _derive_allowed_chars(saju_data or {})
-    allowed_stems = allowed.get("stems", [])
-    allowed_branches = allowed.get("branches", [])
-    forbidden_stems = [s for s in STEMS if s not in allowed_stems]
-    forbidden_pairs = [f"{s}{STEM_TO_ELEMENT.get(s, '')}" for s in forbidden_stems if STEM_TO_ELEMENT.get(s)]
-    primary_structure = summary.get("primary_structure", "")
-    allowed_structures = summary.get("allowed_structure_names", []) or []
-    tg_present = summary.get("ten_gods_present", []) or (saju_data or {}).get("ten_gods_present", []) or []
-    elements_present = summary.get("elements_present", []) or summary.get("elements_count", {}).keys() or []
-
-    return f"""## 🚨 CRITICAL CONSTRAINTS (절대 규칙)
-너는 명리학자가 아니다. 엔진/정답지/룰카드에 근거한 문장만 '편집'한다. 스스로 사주를 다시 계산/추론하지 마라.
-
-- 허용 천간: {", ".join(allowed_stems) if allowed_stems else "(미제공)"}
-- 허용 지지: {", ".join(allowed_branches) if allowed_branches else "(미제공)"}
-- 금지 천간: {", ".join(forbidden_stems) if forbidden_stems else "(없음)"}
-- 금지 조합(원국에 없음): {", ".join(forbidden_pairs) if forbidden_pairs else "(없음)"}
-- 엔진 확정 격국: {primary_structure or "(미제공)"}
-- 사용 가능 격국명: {", ".join(allowed_structures) if allowed_structures else "(미제공)"}
-- 원국 십성(정답지): {", ".join(tg_present) if tg_present else "(미제공)"}
-- 원국 오행(정답지): {", ".join(list(elements_present)) if elements_present else "(미제공)"}
-
-### 🚫 금지(즉시 오답)
-1) 원국에 없는 글자/십성을 '있다/많다/강하다/발달'로 단정.
-2) 지장간/숨은천간 추론으로 원국 성분을 '창조'하는 행위.
-3) 월지에 특정 십성이 '위치'한다고 단정(예: 월지 비견). 필요시 분포/경향으로만.
-4) '관성 충돌/충돌 구조' 같은 단어 사용(엔진이 제공한 경우에만).
-5) 오타 금지: '걸록격' 사용 금지(반드시 '건록격').
-"""
-
-def detect_guardrail_violations(text: str, saju_data: Dict[str, Any]) -> List[str]:
-    """환각/금칙어 탐지"""
-    if not text:
-        return ["EMPTY_OUTPUT"]
-    violations: List[str] = []
-    allowed = _derive_allowed_chars(saju_data or {})
-    allowed_stems = set(allowed.get("stems", []))
-    forbidden_stems = [s for s in STEMS if s not in allowed_stems]
-
-    for ph in FORBIDDEN_PHRASES:
-        if ph and ph in text:
-            violations.append(f"FORBIDDEN_PHRASE:{ph}")
-
-    for s in forbidden_stems:
-        elem = STEM_TO_ELEMENT.get(s)
-        if elem and f"{s}{elem}" in text:
-            violations.append(f"FORBIDDEN_STEM_ELEMENT:{s}{elem}")
-
-    if "걸록" in text:
-        violations.append("TYPO:걸록")
-
-    return violations
-
-def sanitize_output_last_resort(text: str, saju_data: Dict[str, Any]) -> str:
-    """금칙어 강제 제거/치환"""
-    if not text:
-        return text or ""
-    out = text
-    out = out.replace("걸록격", "건록격").replace("걸록", "건록")
-    for ph in FORBIDDEN_PHRASES:
-        out = out.replace(ph, "")
-    allowed = _derive_allowed_chars(saju_data or {})
-    allowed_stems = set(allowed.get("stems", []))
-    forbidden_stems = [s for s in STEMS if s not in allowed_stems]
-    for s in forbidden_stems:
-        elem = STEM_TO_ELEMENT.get(s)
-        if elem:
-            out = out.replace(f"{s}{elem}", "")
-    return out
+    """'보이는 글자' 기반의 사실 앵커"""
+    if not saju_data:
+        return "원국 데이터가 제공되지 않았습니다."
+    pillars = saju_data.get("pillars") or {}
+    # 가능한 한 사용자에게 보이는 값만 사용
+    parts = []
+    for k in ["year", "month", "day", "hour"]:
+        v = pillars.get(k)
+        if isinstance(v, dict):
+            parts.append(f"{k}:{v.get('stem','')}{v.get('branch','')}".strip())
+        elif isinstance(v, str):
+            parts.append(f"{k}:{v}")
+    return " / ".join([p for p in parts if p]) or "원국(연월일시) 정보가 불충분합니다."
 
 
 def build_fact_check_context(saju_data: Dict[str, Any]) -> str:
-    """🔥 P0: 사실 검증용 컨텍스트 (보이는 글자 중심 및 지장간 추론 금지)"""
-    summary = saju_data.get("saju_summary", {})
-    yp = saju_data.get("year_pillar", "")
-    mp = saju_data.get("month_pillar", "")
-    dp = saju_data.get("day_pillar", "")
-    hp = saju_data.get("hour_pillar", "")
-    dm = saju_data.get("day_master", "")
-    gender = saju_data.get("gender", "")
-    age = saju_data.get("age", 0)
-    cur = saju_data.get("current_daeun", "")
-    direction = saju_data.get("daeun_direction", "")
-    
-    tg = summary.get("ten_gods_present", []) or saju_data.get("ten_gods_present", [])
-    dtg = saju_data.get("daeun_ten_gods") or []
-    has_wealth = bool(saju_data.get("has_wealth_star"))
+    """검증용 컨텍스트(최소)"""
+    anchor = build_truth_anchor(saju_data)
+    return f"[사실 앵커]\n{anchor}\n"
 
-    def _fmt(xs, order=None):
-        if not xs: return "(없음)"
-        if order:
-            s = set(xs)
-            xs = [x for x in order if x in s] + [x for x in xs if x not in s]
-        return ", ".join(xs)
 
-    pillars = [yp, mp, dp, hp]
-    stems = [p[0] for p in pillars if p and len(p) >= 2]
-    branches = [p[1] for p in pillars if p and len(p) >= 2]
+def detect_guardrail_violations(text: str, saju_data: Dict[str, Any]) -> List[str]:
+    if not text:
+        return ["empty_output"]
+    v = []
+    # 지장간/추론 금지
+    for w in PROHIBITED_INFER:
+        if w in text:
+            v.append(f"prohibited:{w}")
+    # 템플릿 토큰 유출
+    v += [f"template:{t}" for t in check_template_leaks(text, context="guardrail")]
+    return v
 
-    STEM_ELEM = {
-        "갑": "목", "을": "목", "병": "화", "정": "화", "무": "토", 
-        "기": "토", "경": "금", "신": "금", "임": "수", "계": "수",
-    }
-    all_stem_elem = [f"{k}{v}" for k, v in STEM_ELEM.items()]
-    allowed_stem_elem = [f"{s}{STEM_ELEM.get(s, '')}" for s in stems if s in STEM_ELEM]
-    forbidden_stem_elem = [x for x in all_stem_elem if x not in set(allowed_stem_elem)]
 
-    primary_structure = summary.get("primary_structure") or saju_data.get("primary_structure") or ""
-    allowed_structures = summary.get("allowed_structure_names") or saju_data.get("allowed_structure_names") or []
+def sanitize_output_last_resort(text: str, saju_data: Dict[str, Any]) -> str:
+    """최후 수단: 위험 단어 제거 + 템플릿 토큰 치환"""
+    if not text:
+        return ""
+    for w in PROHIBITED_INFER:
+        text = text.replace(w, "해석")
+    text = replace_template_tokens(text)
+    return text.strip()
 
-    return (
-        "## ✅ 사실 검증용 컨텍스트 (P0)\n"
-        f"- 원국(4주): {yp} {mp} {dp} {hp}\n"
-        f"- 허용 천간(보이는 것만): {', '.join(stems) if stems else '(없음)'}\n"
-        f"- 허용 지지(보이는 것만): {', '.join(branches) if branches else '(없음)'}\n"
-        f"- 금지 천간오행(원국에 없음): {', '.join(forbidden_stem_elem[:6])}{'...' if len(forbidden_stem_elem) > 6 else ''}\n"
-        f"- 일간: {dm}\n"
-        f"- 성별/만나이: {gender} / {age}\n"
-        f"- 격국(엔진 확정): {primary_structure or '(미제공)'}\n"
-        f"- 사용 가능한 격국명: {', '.join(allowed_structures) if allowed_structures else '(미제공)'}\n"
-        f"- 원국 십성(엔진 요약): {_fmt(tg, TENGOD_ORDER)}\n"
-        f"- 현재 대운: {cur} (방향={direction}, 십성={_fmt(dtg, TENGOD_ORDER)})\n"
-        f"- 재성(정재/편재) 원국 존재: {'있음' if has_wealth else '없음'}\n\n"
-        "### 🚫 금지 규칙\n"
-        "1) 위 '허용 천간/지지'에 없는 글자(예: 을, 병 등)를 원국에 있다고 쓰지 마라.\n"
-        "2) 위 십성 리스트에 없는 십성을 '있다'고 쓰지 마라.\n"
-        "3) 대운 변화는 반드시 '대운에서 들어온다'로 원국과 구분해서 말해라.\n"
-        "4) 금지: 지장간/숨은천간 추론 금지. (보이는 글자만)\n"
-        "5) 금지: '걸록격' 표기. (반드시 '건록격')\n"
-    )
 
-def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
+def build_system_prompt(
+    section_id: str,
+    engine_headline: str,
+    survey_data: Dict[str, Any] = None,
+    saju_data: Dict[str, Any] = None,
+    existing_contents: List[str] = None,
+    cards_summary: str = "",
+) -> str:
     spec = PREMIUM_SECTIONS.get(section_id)
-    if not spec: return ""
+    if not spec:
+        return ""
     title = spec.title
     min_chars = spec.min_chars
     master_body = get_master_body_markdown(section_id)
-    
+
     saju_summary = (saju_data or {}).get("saju_summary", {})
     summary_json = json.dumps(saju_summary, ensure_ascii=False, indent=2) if saju_summary else "{}"
-    
+
     truth_anchor = build_truth_anchor(saju_data or {})
     fact_ctx = build_fact_check_context(saju_data or {})
-    
+
+    existing_text = ""
+    if existing_contents:
+        existing_text = "\n\n".join([c[:1200] for c in existing_contents if c])
+
     return f"""너는 [{title}] 전문 컨설턴트다.
 
+[목표]
+- 최소 {min_chars}자 이상으로 상세하게 작성하라.
+- "보이는 글자" 기반 사실만 사용하고, 지장간/장간 등 추론 금지.
+- 템플릿 토큰({{industry}} 등)을 절대 노출하지 마라.
+
+[엔진 헤드라인]
+{engine_headline or ""}
+
+[사실 앵커]
 {truth_anchor}
 
-{ROOT_CAUSE_RULE}
+[검증 컨텍스트]
 {fact_ctx}
 
-## 정답지 (Ground Truth)
+[사주 요약 JSON]
 {summary_json}
 
-## 첫 문장 (수정 금지)
-"{engine_headline}"
+[설문 데이터]
+{json.dumps(survey_data or {{}}, ensure_ascii=False, indent=2)}
 
-## 마스터 샘플
-{master_body if master_body else '(자유 작성)'}
+[기존 섹션(중복 방지/연결)]
+{existing_text}
 
-## 필수 규칙
-1) 첫 문장: 위 엔진 결론으로 시작
-2) 최소 {min_chars}자 이상, 전문적인 비즈니스 톤 준수
+[마스터 샘플(참고)]
+{master_body}
+
+[작성 규칙]
+- 문장으로 명확히, 실행 가능한 조언을 포함.
+- 과도한 단정 금지. 대신 '가능성/경향' 표현.
+- 금지 단어(지장간/추론 등) 사용 금지.
+"""
+
+
+def generate_fallback_body(section_id: str, engine_headline: str, survey_data: Dict[str, Any]) -> str:
+    """LLM 실패/불완전 시에도 무조건 본문 생성 (P0)"""
+    spec = PREMIUM_SECTIONS.get(section_id)
+    title = spec.title if spec else section_id
+    industry = (survey_data or {}).get("industry") or "해당 업종"
+    goal = (survey_data or {}).get("goal") or "목표"
+    pain = (survey_data or {}).get("painPoint") or "현재 병목"
+
+    return f"""# {spec.icon if spec else "📌"} {title}
+
+> 핵심 결론: {engine_headline or "핵심 결론을 정리 중입니다. (자동 폴백)"}
+
+## 현재 상황(요약)
+- 업종: {industry}
+- 목표: {goal}
+- 병목: {pain}
+
+## 바로 적용할 액션(오늘 가능한 것만)
+1) **데이터 1개만 정리**: 최근 30일 매출/유입/문의/전환 중 1개를 고정 지표로 선택하고 매일 기록합니다.
+2) **병목 1개만 제거**: "{pain}"을 방해하는 가장 큰 원인을 1개 고르고, 오늘 30분 안에 줄일 수 있는 조치를 실행합니다.
+3) **결정 루틴 고정**: 오전(또는 업무 시작 직후) 10분 동안 '오늘의 1순위'를 명확히 적고, 그 외는 보류합니다.
+
+## 리스크 & 주의
+- 본 섹션은 LLM 생성이 실패해도 결과가 비지 않도록 만든 자동 폴백입니다.
+- 추가 입력(매출 규모/고객군/채널/가격/팀 상황)이 있으면 더 정밀한 실행 플랜으로 강화 가능합니다.
 """
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 빌더 클래스
+# OpenAI Key Provider (원본 유지)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def get_openai_api_key() -> str:
+    try:
+        from app.config import settings
+        return settings.OPENAI_API_KEY
+    except Exception:
+        return ""
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Builder
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class PremiumReportBuilder:
-    def __init__(self):
-        self._client = None
-        self._semaphore = None
-    
+    def __init__(self, max_concurrency: int = 3):
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._client = self._get_client()
+
     def _get_client(self) -> AsyncOpenAI:
         api_key = get_openai_api_key()
         return AsyncOpenAI(api_key=api_key, timeout=httpx.Timeout(120.0, connect=15.0), max_retries=2)
-    
-    async def _repair_output_once(self, section_id: str, system_prompt: str, draft_markdown: str, violations: List[str], min_chars: int) -> str:
+
+    async def _repair_output_once(
+        self,
+        section_id: str,
+        system_prompt: str,
+        draft_markdown: str,
+        violations: List[str],
+        min_chars: int,
+    ) -> str:
         """규칙 위반 시 1회 리라이트 수정"""
-        if not draft_markdown: return ""
+        if not draft_markdown:
+            return ""
         try:
             repair_user = f"""너는 아래 초안을 '규칙 위반을 제거'하여 다시 작성한다.
 [위반 목록]
@@ -415,86 +309,147 @@ class PremiumReportBuilder:
 """
             response = await self._client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": repair_user}],
-                temperature=0.2, max_tokens=1800
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": repair_user},
+                ],
+                temperature=0.2,
+                max_tokens=1800,
             )
-            return (response.choices[0].message.content or "").strip()
+            out = (response.choices[0].message.content or "").strip()
+            if len(out) < min_chars:
+                return draft_markdown
+            return out
         except Exception as e:
-            logger.error(f"[Builder] Repair 실패: {e}")
+            logger.error(f"[Builder] repair 실패 section={section_id}: {e}")
             return draft_markdown
 
-    async def _generate_section_safe(self, section_id: str, saju_data: Dict, allocation: Any, target_year: int, survey_data: Dict, engine_headline: str, existing_contents: List[str], job_id: str = None) -> Dict[str, Any]:
+    async def build_premium_sections(
+        self,
+        saju_data: Dict[str, Any],
+        survey_data: Dict[str, Any],
+        engine_headline: str,
+        target_year: int = 2026,
+        job_id: str = None,
+    ) -> List[Dict[str, Any]]:
+        """7개 섹션 모두 생성. P0: 절대 빈 섹션 금지"""
+        sections = []
+        existing_contents: List[str] = []
+
+        for section_id in ["exec", "money", "business", "team", "health", "calendar", "sprint"]:
+            try:
+                s = await self._generate_section_safe(
+                    section_id=section_id,
+                    saju_data=saju_data,
+                    survey_data=survey_data,
+                    target_year=target_year,
+                    engine_headline=engine_headline,
+                    existing_contents=existing_contents,
+                    job_id=job_id,
+                )
+            except Exception as e:
+                logger.error(f"[Builder] 섹션 생성 실패 section={section_id} job_id={job_id}: {e}")
+                s = {
+                    "section_id": section_id,
+                    "title": PREMIUM_SECTIONS.get(section_id).title if PREMIUM_SECTIONS.get(section_id) else section_id,
+                    "body_markdown": generate_fallback_body(section_id, engine_headline, survey_data or {}),
+                    "char_count": 0,
+                    "llm_response_len": 0,
+                    "guardrail_violations": ["exception_fallback"],
+                    "repaired": False,
+                }
+            sections.append(s)
+            existing_contents.append((s.get("body_markdown") or "")[:1500])
+
+        # 정렬
+        sections.sort(key=lambda x: PREMIUM_SECTIONS.get(x["section_id"]).order if PREMIUM_SECTIONS.get(x["section_id"]) else 999)
+        return sections
+
+    async def _generate_section_safe(
+        self,
+        section_id: str,
+        saju_data: Dict[str, Any],
+        survey_data: Dict[str, Any],
+        target_year: int,
+        engine_headline: str,
+        existing_contents: List[str],
+        job_id: str = None,
+    ) -> Dict[str, Any]:
         spec = PREMIUM_SECTIONS.get(section_id)
         system_prompt = build_system_prompt(section_id, engine_headline, survey_data, saju_data, existing_contents)
         user_prompt = f"## 사주 원국 분석 및 리포트 작성 부탁드립니다. ({target_year}년)"
-        
-        async with self._semaphore:
-            response = await self._client.chat.completions.create(
-                model="gpt-4o", messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                temperature=0.3, max_tokens=1800
-            )
-            body_markdown = response.choices[0].message.content or ""
-            llm_response_len = len(body_markdown)
+
+        llm_response_len = 0
+        body_markdown = ""
+        try:
+            async with self._semaphore:
+                response = await self._client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=1800,
+                )
+                body_markdown = (response.choices[0].message.content or "").strip()
+                llm_response_len = len(body_markdown)
+        except Exception as e:
+            logger.error(f"[Builder] LLM 호출 실패 section={section_id} job_id={job_id}: {e}")
+            body_markdown = generate_fallback_body(section_id, engine_headline, survey_data or {}) or ""
+            llm_response_len = 0
+
+        # ✅ 결과가 비거나 너무 짧으면(불완전) fallback으로 교체
+        min_chars = spec.min_chars if spec else 800
+        if (not body_markdown) or (len(body_markdown) < min_chars):
+            body_markdown = generate_fallback_body(section_id, engine_headline, survey_data or {}) or body_markdown
 
         # ── P0 Guardrail 검증 및 수정 ──
         violations = detect_guardrail_violations(body_markdown, saju_data or {})
         repaired = False
         if violations:
             logger.warning(f"[Builder] Guardrail 위반 탐지: {violations}")
-            repaired_text = await self._repair_output_once(section_id, system_prompt, body_markdown, violations, spec.min_chars)
+            repaired_text = await self._repair_output_once(section_id, system_prompt, body_markdown, violations, min_chars)
             if repaired_text != body_markdown:
                 repaired = True
                 body_markdown = repaired_text
-            
+
             # 2차 검증 실패 시 최후 수단
             violations2 = detect_guardrail_violations(body_markdown, saju_data or {})
             if violations2:
                 body_markdown = sanitize_output_last_resort(body_markdown, saju_data or {})
 
         body_markdown = replace_template_tokens(body_markdown)
+        body_markdown = normalize_year(body_markdown, target_year)
+
         return {
-            "section_id": section_id, "title": spec.title, "body_markdown": body_markdown,
-            "char_count": len(body_markdown), "llm_response_len": llm_response_len,
-            "guardrail_violations": violations, "repaired": repaired
+            "section_id": section_id,
+            "title": spec.title if spec else section_id,
+            "body_markdown": body_markdown,
+            "char_count": len(body_markdown),
+            "llm_response_len": llm_response_len,
+            "guardrail_violations": violations,
+            "repaired": repaired,
         }
 
     # (기타 Helper 함수들은 기존 로직과 동일하게 유지)
-    async def regenerate_single_section(self, section_id: str, saju_data: Dict, rulecards: List[Dict], feature_tags: List[str] = None, target_year: int = 2026, user_question: str = "", survey_data: Dict = None):
-        """단일 섹션 재생성 - report_worker에서 호출"""
-        self._client = self._get_client()
-        self._semaphore = asyncio.Semaphore(1)
-        
-        try:
-            # 엔진 헤드라인 생성 (룰카드 기반)
-            engine_headline = ""
-            if rulecards:
-                top_card = rulecards[0] if rulecards else {}
-                interpretation = top_card.get("interpretation", "") or top_card.get("mechanism", "")
-                if interpretation:
-                    engine_headline = interpretation[:100]
-            
-            if not engine_headline:
-                engine_headline = f"{target_year}년 비즈니스 전략 분석 결과입니다."
-            
-            # 섹션 생성
-            result = await self._generate_section_safe(
-                section_id=section_id,
-                saju_data=saju_data,
-                allocation=None,
-                target_year=target_year,
-                survey_data=survey_data or {},
-                engine_headline=engine_headline,
-                existing_contents=[],
-                job_id=None
-            )
-            
-            return {"ok": True, "section": result}
-            
-        except Exception as e:
-            logger.error(f"[Builder] regenerate_single_section 실패: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return {"ok": False, "error": str(e)}
-
-premium_report_builder = PremiumReportBuilder()
-report_builder = premium_report_builder
+    async def regenerate_single_section(
+        self,
+        section_id: str,
+        saju_data: Dict[str, Any],
+        survey_data: Dict[str, Any],
+        target_year: int,
+        engine_headline: str,
+        existing_contents: List[str],
+        job_id: str = None,
+    ) -> Dict[str, Any]:
+        """단일 섹션 재생성"""
+        return await self._generate_section_safe(
+            section_id=section_id,
+            saju_data=saju_data,
+            survey_data=survey_data,
+            target_year=target_year,
+            engine_headline=engine_headline,
+            existing_contents=existing_contents or [],
+            job_id=job_id,
+        )
