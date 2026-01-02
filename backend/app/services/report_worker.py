@@ -513,12 +513,16 @@ class ReportWorker:
                 section_id=section_id, saju_data=saju_data, rulecards=rulecards,
                 feature_tags=feature_tags, target_year=target_year, user_question=question, survey_data=survey_data
             )
-            if not result.get("success"):
+            # 🔥 P0 FIX: "ok" 또는 "success" 둘 다 지원
+            if not result.get("ok") and not result.get("success"):
                 return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [result.get("error")]}
             
             section_data = result.get("section", {})
             return {"ok": True, "content": {**section_data, "title": section_title, "section_id": section_id}, "guardrail_errors": []}
         except Exception as e:
+            logger.error(f"[Worker] _generate_section 예외: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [str(e)]}
 
     def _get_all_cards_as_dict(self, rulestore: Any) -> List[Dict]:

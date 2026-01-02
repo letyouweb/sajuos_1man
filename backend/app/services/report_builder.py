@@ -460,9 +460,41 @@ class PremiumReportBuilder:
 
     # (기타 Helper 함수들은 기존 로직과 동일하게 유지)
     async def regenerate_single_section(self, section_id: str, saju_data: Dict, rulecards: List[Dict], feature_tags: List[str] = None, target_year: int = 2026, user_question: str = "", survey_data: Dict = None):
+        """단일 섹션 재생성 - report_worker에서 호출"""
         self._client = self._get_client()
         self._semaphore = asyncio.Semaphore(1)
-        # ... (생략: 기존 regenerate_single_section 로직)
+        
+        try:
+            # 엔진 헤드라인 생성 (룰카드 기반)
+            engine_headline = ""
+            if rulecards:
+                top_card = rulecards[0] if rulecards else {}
+                interpretation = top_card.get("interpretation", "") or top_card.get("mechanism", "")
+                if interpretation:
+                    engine_headline = interpretation[:100]
+            
+            if not engine_headline:
+                engine_headline = f"{target_year}년 비즈니스 전략 분석 결과입니다."
+            
+            # 섹션 생성
+            result = await self._generate_section_safe(
+                section_id=section_id,
+                saju_data=saju_data,
+                allocation=None,
+                target_year=target_year,
+                survey_data=survey_data or {},
+                engine_headline=engine_headline,
+                existing_contents=[],
+                job_id=None
+            )
+            
+            return {"ok": True, "section": result}
+            
+        except Exception as e:
+            logger.error(f"[Builder] regenerate_single_section 실패: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"ok": False, "error": str(e)}
 
 premium_report_builder = PremiumReportBuilder()
 report_builder = premium_report_builder
