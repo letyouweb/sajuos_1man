@@ -188,7 +188,7 @@ class ReportWorker:
                 continue
 
             # save section
-            await self.supabase.save_section(job_id, last_result)
+            await self.supabase.save_section(job_id, section_id, last_result)
             existing_contents.append(last_result.get("body_markdown", "")[:1200])
 
             # collect ids
@@ -229,15 +229,41 @@ class ReportWorker:
     # -------------------------
 
     def _prepare_saju_data(self, input_json: Dict[str, Any]) -> Dict[str, Any]:
+        """사주 데이터 준비 - 다양한 경로에서 pillar 추출"""
         # saju_result can be nested JSON string
         saju_result = _ensure_dict(input_json.get("saju_result") or input_json.get("saju") or {})
-        # sometimes pillars are at top-level
+        
+        # 🔥 P0: nested saju 구조 지원 (calculate API 응답 구조)
+        nested_saju = _ensure_dict(saju_result.get("saju") or {})
+        
+        def _extract_ganji(pillar_data) -> str:
+            """pillar가 dict면 ganji 추출, 아니면 그대로 반환"""
+            if not pillar_data:
+                return ""
+            if isinstance(pillar_data, dict):
+                return pillar_data.get("ganji", "") or pillar_data.get("value", "") or ""
+            return str(pillar_data) if pillar_data else ""
+        
+        # 🔥 P0: 3단계 fallback 체인
+        # 1) saju_result.saju.year_pillar (calculate API 구조)
+        # 2) saju_result.year_pillar (직접 접근)
+        # 3) input_json.year_pillar (top-level)
+        year_pillar = _extract_ganji(nested_saju.get("year_pillar")) or _extract_ganji(saju_result.get("year_pillar")) or _extract_ganji(input_json.get("year_pillar"))
+        month_pillar = _extract_ganji(nested_saju.get("month_pillar")) or _extract_ganji(saju_result.get("month_pillar")) or _extract_ganji(input_json.get("month_pillar"))
+        day_pillar = _extract_ganji(nested_saju.get("day_pillar")) or _extract_ganji(saju_result.get("day_pillar")) or _extract_ganji(input_json.get("day_pillar"))
+        hour_pillar = _extract_ganji(nested_saju.get("hour_pillar")) or _extract_ganji(saju_result.get("hour_pillar")) or _extract_ganji(input_json.get("hour_pillar"))
+        
+        # day_master도 다양한 경로 지원
+        day_master = saju_result.get("day_master") or input_json.get("day_master") or (day_pillar[0] if day_pillar else "")
+        
+        logger.info(f"[Worker] 🔍 추출된 4주: 년={year_pillar} 월={month_pillar} 일={day_pillar} 시={hour_pillar}")
+        
         saju_data = {
-            "year_pillar": saju_result.get("year_pillar") or input_json.get("year_pillar"),
-            "month_pillar": saju_result.get("month_pillar") or input_json.get("month_pillar"),
-            "day_pillar": saju_result.get("day_pillar") or input_json.get("day_pillar"),
-            "hour_pillar": saju_result.get("hour_pillar") or input_json.get("hour_pillar"),
-            "day_master": saju_result.get("day_master") or input_json.get("day_master"),
+            "year_pillar": year_pillar,
+            "month_pillar": month_pillar,
+            "day_pillar": day_pillar,
+            "hour_pillar": hour_pillar,
+            "day_master": day_master,
             "day_master_element": saju_result.get("day_master_element") or input_json.get("day_master_element"),
             "daeun_direction": saju_result.get("daeun_direction") or input_json.get("daeun_direction"),
             "current_daeun": saju_result.get("current_daeun") or input_json.get("current_daeun"),
