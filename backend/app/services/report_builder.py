@@ -5,6 +5,7 @@ SajuOS Premium Report Builder v12 - P0 빈 섹션 절대 금지
 🔥 P0-2: 섹션 ID 정합성 (exec,money,business,team,health,calendar,sprint)
 🔥 P0-3: 토큰 "치환" (삭제 X) - {industry}→"해당 업종"
 🔥 P0-4: 생성 실패 원인 로그 4개 필수
+🔥 P0-5: build_truth_anchor 적용 (환각 방지 강화)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import asyncio
@@ -166,7 +167,7 @@ def generate_fallback_body(section_id: str, engine_headline: str, survey_data: D
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 데이터 구조
+# 데이터 구조 및 스코어링
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @dataclass
@@ -243,7 +244,7 @@ def extract_engine_headline(cards: List[Dict]) -> str:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 프롬프트
+# 프롬프트 및 환각 방지 규칙
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
@@ -252,43 +253,69 @@ ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
 - 금지: "고객님이 설문에서 ~라고 하셨으니" 같은 서술.
 """
 
+def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
+    """
+    LLM 환각(소설) 원천봉쇄용 "팩트 앵커".
+    - 엔진이 확정한 값만 나열하고, 없는 건 언급 금지로 못 박는다.
+    - saju_summary가 있으면 그걸 '정답'으로 사용한다.
+    """
+    saju_data = saju_data or {}
+    y = saju_data.get("year_pillar") or ""
+    m = saju_data.get("month_pillar") or ""
+    d = saju_data.get("day_pillar") or ""
+    h = saju_data.get("hour_pillar") or ""
 
+    # 4주(연/월/일/시)에 실제로 등장하는 글자(천간/지지)만 "허용"으로 간주
+    pillars = [p for p in [y, m, d, h] if isinstance(p, str) and p]
+    allowed_chars = sorted({ch for p in pillars for ch in p if ch.strip()})
 
+    summary = saju_data.get("saju_summary") or {}
+    if not isinstance(summary, dict):
+        summary = {}
 
-def build_fact_check_context(saju_data: dict) -> str:
-    """P0: 원국 팩트 체크 블록 생성 - 없는 십성 언급 금지"""
-    if not saju_data:
-        return ""
-    
-    pillars = "".join([
-        saju_data.get("year_pillar", ""),
-        saju_data.get("month_pillar", ""),
-        saju_data.get("day_pillar", ""),
-        saju_data.get("hour_pillar", ""),
-    ])
-    
-    has_water = any(ch in pillars for ch in ["임", "계", "해", "자"])
-    has_earth = any(ch in pillars for ch in ["무", "기", "진", "술", "축", "미"])
-    has_wood = any(ch in pillars for ch in ["갑", "을", "인", "묘"])
-    has_fire = any(ch in pillars for ch in ["병", "정", "사", "오"])
-    has_metal = any(ch in pillars for ch in ["경", "신", "신", "유"])
-    
-    current_daeun = saju_data.get("current_daeun") or "미산출"
-    daeun_direction = saju_data.get("daeun_direction") or "미산출"
-    
-    return f"""
-## 원국 팩트 체크 (절대 준수)
-- 원국: {saju_data.get("year_pillar", "-")} {saju_data.get("month_pillar", "-")} {saju_data.get("day_pillar", "-")} {saju_data.get("hour_pillar", "-") or "미입력"}
-- 현재 대운: {current_daeun} (방향={daeun_direction})
-- 수 기운(임계해자): {"있음" if has_water else "없음"} -> 없으면 재성 단정 금지
-- 토 기운(무기진술축미): {"있음" if has_earth else "없음"}
-- 목 기운(갑을인묘): {"있음" if has_wood else "없음"}
-- 화 기운(병정사오): {"있음" if has_fire else "없음"}
-- 금 기운(경신신유): {"있음" if has_metal else "없음"}
+    ten_present = summary.get("ten_gods_present") or saju_data.get("ten_gods_present") or []
+    if not isinstance(ten_present, list):
+        ten_present = []
 
-### 금지 규칙
-1. 원국에 없는 오행/십성을 있다고 말하지 마라
-2. 대운에서 들어오는 기운은 대운에서 ~가 들어온다로 명시
+    elements_count = summary.get("elements_count") or {}
+    if not isinstance(elements_count, dict):
+        elements_count = {}
+    elements_present = [k for k, v in elements_count.items() if isinstance(v, (int, float)) and v > 0]
+
+    primary_structure = summary.get("primary_structure") or ""
+    allowed_structures = summary.get("allowed_structure_names") or []
+    if not isinstance(allowed_structures, list):
+        allowed_structures = []
+
+    # 월지 십성은 엔진이 확정한 값을 최우선으로 고정
+    month_branch_ten_god = saju_data.get("month_branch_ten_god")
+    if month_branch_ten_god and isinstance(month_branch_ten_god, str):
+        month_branch_ten_god_txt = month_branch_ten_god
+    else:
+        month_branch_ten_god_txt = ""
+
+    return f"""## 🚨 ZERO TOLERANCE RULES (절대 준수 / 위반시 실패)
+너는 명리학자가 아니다. 너는 **엔진이 확정한 팩트만** 문장으로 정리하는 '작가'다.
+
+### 1) 존재/비존재 규칙
+- 4주에 실제로 등장하는 글자(천간/지지)만 언급 허용: {''.join(allowed_chars) if allowed_chars else '(unknown)'}
+- 위 목록에 없는 글자(예: 을/병/자 등)는 **절대 언급 금지**. (지장간, 일반론, 추론 금지)
+
+### 2) 십성/오행은 정답지(saju_summary)만 따른다
+- 원국에 '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
+- 원국에 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
+- saju_summary에 없는 십성/오행을 "있다"고 말하면 실패.
+
+### 3) 격국/용어 제한
+- 격국은 allowed_structure_names 중에서만 사용: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
+- primary_structure(최우선): {primary_structure or '(unknown)'}
+
+### 4) 월지 판정 고정(엔진값 우선)
+- month_pillar={m or '(unknown)'} | 월지 십성(엔진): {month_branch_ten_god_txt or '(not provided)'}
+- 이 값과 다르게 쓰면 실패.
+
+[엔진 확정 4주]
+- year={y} / month={m} / day={d} / hour={h}
 """
 
 def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
@@ -307,8 +334,8 @@ def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict
     if existing_contents:
         existing_block = f"\n## 이전 섹션 (반복 금지)\n{chr(10).join(existing_contents[-2:])}\n"
     
-    # 🔥 P0: 원국 팩트 체크 블록 추가
-    fact_ctx = build_fact_check_context(saju_data or {})
+    # 🔥 P0-5: 업데이트된 진실의 닻(Truth Anchor) 블록 적용
+    fact_ctx = build_truth_anchor(saju_data or {})
     
     return f"""너는 [{title}] 전문 컨설턴트다.
 
@@ -446,7 +473,7 @@ class PremiumReportBuilder:
             section_id=section_id,
             engine_headline=engine_headline or spec.fallback_headline,
             survey_data=survey_data,
-            saju_data=saju_data,  # 🔥 P0: 팩트체크용
+            saju_data=saju_data,  
             existing_contents=existing_contents,
             cards_summary=cards_summary
         )
