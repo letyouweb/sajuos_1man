@@ -284,6 +284,8 @@ class ReportWorker:
                 
                 content = section_result.get("content", {})
                 ok = section_result.get("ok", True)
+                quality_warning = section_result.get("quality_warning", False)
+                guardrail_errors = section_result.get("guardrail_errors", [])
                 body_markdown = content.get("body_markdown", "")
                 
                 # 🔥 P0: 오타/잔존어 정규화 필터 적용
@@ -307,7 +309,9 @@ class ReportWorker:
                 sections_result[section_id] = content
                 
                 if not ok:
-                    failed_sections.append({"section_id": section_id, "errors": section_result.get("guardrail_errors", [])})
+                    failed_sections.append({"section_id": section_id, "errors": guardrail_errors})
+                elif quality_warning:
+                    logger.warning(f"[Worker] 섹션 {section_id} 품질 경고: {guardrail_errors}")
                 
             except Exception as e:
                 logger.error(f"[Worker] 섹션 실패: {section_id} | {e}")
@@ -505,25 +509,101 @@ class ReportWorker:
             logger.exception(f"RuleCardScorer 실패: {e}")
             raise RuntimeError(f"RuleCardScorer 호출 실패: {e}")
 
+    def _check_llm_quality(self, body_markdown: str, target_year: int, saju_data: Dict, min_chars: int = 600) -> List[str]:
+        """🔥 P0: LLM 결과 품질 가드레일"""
+        issues = []
+        text = body_markdown or ""
+        
+        # 1) 거절/메타 문구 탐지
+        rejection_phrases = [
+            "죄송하지만", "죄송합니다", "분석할 수 없", "분석이 불가", "추가 정보가 필요",
+            "데이터가 부족", "정보가 부족", "확인이 필요", "제공된 정보만으로는",
+            "더 많은 정보", "명확하지 않", "알 수 없습니다"
+        ]
+        for phrase in rejection_phrases:
+            if phrase in text:
+                issues.append(f"거절문구:{phrase}")
+                break
+        
+        # 2) 연도 오류 탐지 (target_year와 다른 연도가 주요 언급되면)
+        wrong_years = ["2024년", "2025년", "2023년"]
+        correct_year = f"{target_year}년"
+        for wy in wrong_years:
+            # 단순 언급은 OK, 주요 분석 대상처럼 쓰이면 문제
+            if wy in text and text.count(wy) > text.count(correct_year):
+                issues.append(f"연도오류:{wy}")
+                break
+        
+        # 3) 최소 길이 미달
+        if len(text) < min_chars:
+            issues.append(f"길이부족:{len(text)}<{min_chars}")
+        
+        # 4) saju_summary에 없는 십성 단정 언급 (옵션)
+        saju_summary = saju_data.get("saju_summary", {})
+        ten_gods_present = saju_summary.get("ten_gods_present", [])
+        if ten_gods_present:
+            # 없는 십성을 "있다"고 단정하면 문제
+            all_ten_gods = ["비견", "겁재", "식신", "상관", "편재", "정재", "편관", "정관", "편인", "정인"]
+            missing_gods = [g for g in all_ten_gods if g not in ten_gods_present]
+            for mg in missing_gods:
+                # "편재가 있어", "정관이 있는" 같은 패턴
+                if f"{mg}가 있" in text or f"{mg}이 있" in text or f"{mg}을 가" in text:
+                    issues.append(f"환각:{mg}")
+                    break
+        
+        return issues
+
     async def _generate_section(self, section_id, section_title, saju_data, rulecards, feature_tags, target_year, question, survey_data, match_summary) -> Dict:
-        """섹션 본문 생성"""
-        try:
-            from app.services.report_builder import premium_report_builder
-            result = await premium_report_builder.regenerate_single_section(
-                section_id=section_id, saju_data=saju_data, rulecards=rulecards,
-                feature_tags=feature_tags, target_year=target_year, user_question=question, survey_data=survey_data
-            )
-            # 🔥 P0 FIX: "ok" 또는 "success" 둘 다 지원
-            if not result.get("ok") and not result.get("success"):
-                return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [result.get("error")]}
-            
-            section_data = result.get("section", {})
-            return {"ok": True, "content": {**section_data, "title": section_title, "section_id": section_id}, "guardrail_errors": []}
-        except Exception as e:
-            logger.error(f"[Worker] _generate_section 예외: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [str(e)]}
+        """섹션 본문 생성 + 🔥 P0: 품질 가드레일"""
+        MAX_RETRIES = 2
+        min_chars = 600  # 최소 본문 길이
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                from app.services.report_builder import premium_report_builder
+                result = await premium_report_builder.regenerate_single_section(
+                    section_id=section_id, saju_data=saju_data, rulecards=rulecards,
+                    feature_tags=feature_tags, target_year=target_year, user_question=question, survey_data=survey_data
+                )
+                
+                # 🔥 P0 FIX: "ok" 또는 "success" 둘 다 지원
+                if not result.get("ok") and not result.get("success"):
+                    if attempt < MAX_RETRIES - 1:
+                        logger.warning(f"[Worker] 섹션 {section_id} 생성 실패, 재시도 {attempt+1}/{MAX_RETRIES}")
+                        continue
+                    return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [result.get("error")]}
+                
+                section_data = result.get("section", {})
+                body_markdown = section_data.get("body_markdown", "")
+                
+                # 🔥 P0: 품질 가드레일 체크
+                quality_issues = self._check_llm_quality(body_markdown, target_year, saju_data, min_chars)
+                
+                if quality_issues:
+                    logger.warning(f"[Worker] 섹션 {section_id} 품질 이슈: {quality_issues}")
+                    if attempt < MAX_RETRIES - 1:
+                        logger.info(f"[Worker] 섹션 {section_id} 재생성 시도 {attempt+2}/{MAX_RETRIES}")
+                        continue
+                    # 마지막 시도에서도 실패하면 이슈와 함께 반환
+                    return {
+                        "ok": True,  # 저장은 하되
+                        "content": {**section_data, "title": section_title, "section_id": section_id},
+                        "guardrail_errors": quality_issues,
+                        "quality_warning": True
+                    }
+                
+                # 성공
+                return {"ok": True, "content": {**section_data, "title": section_title, "section_id": section_id}, "guardrail_errors": []}
+                
+            except Exception as e:
+                logger.error(f"[Worker] _generate_section 예외: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    continue
+                import traceback
+                logger.error(traceback.format_exc())
+                return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": [str(e)]}
+        
+        return {"ok": False, "content": {"title": section_title, "body_markdown": ""}, "guardrail_errors": ["MAX_RETRIES 초과"]}
 
     def _get_all_cards_as_dict(self, rulestore: Any) -> List[Dict]:
         if not rulestore: return []
