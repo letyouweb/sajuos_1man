@@ -468,3 +468,20 @@ Analyze and respond in JSON format."""
 
 
 gpt_interpreter = GptInterpreter()
+# ─────────────────────────────────────────────────────────────
+# P0: 용어/오타 정규화 (마지막 방어선)
+# ─────────────────────────────────────────────────────────────
+_NORMALIZE_REPLACEMENTS = {
+    "걸록격": "건록격",
+    "걸록": "건록",
+    "비견이 월지": "편인이 월지",
+    "자수와 을목": "원국의 기운",
+}
+
+def normalize_generated_text(text: str) -> str:
+    if not text:
+        return ""
+    out = text
+    for k, v in _NORMALIZE_REPLACEMENTS.items():
+        out = out.replace(k, v)
+    return out
