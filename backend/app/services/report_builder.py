@@ -1,541 +1,273 @@
 """
-SajuOS Premium Report Builder v12 - P0 빈 섹션 절대 금지
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 P0-1: 카드 0개 → LLM 호출 X, 폴백 텍스트 즉시 반환
-🔥 P0-2: 섹션 ID 정합성 (exec,money,business,team,health,calendar,sprint)
-🔥 P0-3: 토큰 "치환" (삭제 X) - {industry}→"해당 업종"
-🔥 P0-4: 생성 실패 원인 로그 4개 필수
-🔥 P0-5: build_truth_anchor 적용 (환각 방지 강화)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+report_builder.py
+Premium section generator:
+- Uses master sample markdown per section
+- Uses selected RuleCards
+- Injects dynamic Truth Anchor to prevent hallucinations
 """
-import asyncio
-import logging
-import re
-from typing import Dict, Any, List
-from dataclasses import dataclass, field
 
-from openai import AsyncOpenAI
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
 import httpx
 
-from app.config import get_settings
-from app.services.openai_key import get_openai_api_key
-from app.services.terminology_mapper import sanitize_for_business
-from app.services.job_store import job_store
-from app.templates.master_samples import load_master_samples, get_master_body_markdown
-
-logger = logging.getLogger(__name__)
-
-MASTER_SAMPLES = load_master_samples("v1")
-
-DEBUG_TEMPLATE_LEAKS = False
+from app.services.truth_anchor import build_truth_anchor
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P0-3: 토큰 치환 (삭제 X)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# -----------------------------
+# Section specs
+# -----------------------------
 
-TOKEN_REPLACEMENTS = {
-    "{industry}": "해당 업종",
-    "{painPoint}": "현재 병목",
-    "{engine_headline}": "핵심 결론",
-    "{goal}": "목표",
-    "{revenue}": "매출",
-    "{day_master}": "일간",
-    "{time}": "시점",
-    "[ENGINE_HEADLINE]": "",
-    "[/ENGINE_HEADLINE]": "",
-}
-
-
-def replace_template_tokens(text: str) -> str:
-    """🔥 P0-3: 토큰 치환 (삭제가 아닌 의미 있는 텍스트로 대체)"""
-    if not text:
-        return ""
-    if DEBUG_TEMPLATE_LEAKS:
-        return text.strip()
-    for token, replacement in TOKEN_REPLACEMENTS.items():
-        text = text.replace(token, replacement)
-    text = re.sub(r"\{[a-zA-Z_]+\}", "해당 항목", text)
-    return text.strip()
-
-
-def check_template_leaks(text: str, context: str = "") -> List[str]:
-    if not text:
-        return []
-    leaked = []
-    for token in TOKEN_REPLACEMENTS.keys():
-        if token in text:
-            leaked.append(token)
-    if re.search(r"\{[a-zA-Z_]+\}", text):
-        leaked.append("{other}")
-    if leaked:
-        logger.warning(f"[TemplateLeak] {context} | leaked: {leaked}")
-    return leaked
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P0-2: 섹션 ID 정합성 (기존 ID 유지)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-@dataclass
+@dataclass(frozen=True)
 class SectionSpec:
-    id: str
+    section_id: str
     title: str
-    max_cards: int
-    min_chars: int
-    fallback_headline: str
-    topic_filter: List[str] = field(default_factory=list)
+    min_chars: int = 800
 
 
-# 🔥 P0-2: 합의된 section_id 고정 (exec, money, business, team, health, calendar, sprint)
-PREMIUM_SECTIONS = {
-    "exec": SectionSpec(
-        "exec", "2026 비즈니스 전략 기상도", 20, 1500,
-        "현재 사주 구조상 2026년 비즈니스 환경은 변화의 기운이 감지됩니다",
-        topic_filter=["전체운", "종합", "일간", "성향", "기운", "운세"]
-    ),
-    "money": SectionSpec(
-        "money", "자본 유동성 및 현금흐름 최적화", 20, 2500,
-        "현재 구조상 현금흐름의 변동성이 예상됩니다",
-        topic_filter=["재물", "재성", "정재", "편재", "현금", "매출", "투자"]
-    ),
-    "business": SectionSpec(
-        "business", "시장 포지셔닝 및 상품 확장 전략", 20, 2500,
-        "현재 구조상 시장 포지셔닝 재검토가 필요합니다",
-        topic_filter=["사업", "창업", "경영", "관성", "정관", "편관", "시장"]
-    ),
-    "team": SectionSpec(
-        "team", "조직 확장 및 파트너십 가이드", 20, 2000,
-        "현재 구조상 파트너십 관리가 핵심 과제입니다",
-        topic_filter=["비겁", "비견", "겁재", "동업", "파트너", "협력", "인맥"]
-    ),
-    "health": SectionSpec(
-        "health", "주요 장애물 및 리스크 (2026)", 15, 1500,
-        "현재 구조상 해당 리스크는 낮은 수준입니다",
-        topic_filter=["리스크", "위험", "충", "형", "파", "손해", "장애", "번아웃"]
-    ),
-    "calendar": SectionSpec(
-        "calendar", "12개월 비즈니스 스프린트 캘린더", 15, 2500,
-        "현재 구조상 월별 리듬에 맞춘 전략이 필요합니다",
-        topic_filter=["월운", "시기", "계절", "타이밍", "길일", "흉일", "대운"]
-    ),
-    "sprint": SectionSpec(
-        "sprint", "향후 90일 매출 극대화 액션플랜", 15, 2000,
-        "현재 구조상 90일 집중 실행이 효과적입니다",
-        topic_filter=["실행", "액션", "계획", "목표", "식신", "상관", "식상"]
-    ),
+# Keep aligned with UI tabs / MasterSamples keys
+PREMIUM_SECTIONS: Dict[str, SectionSpec] = {
+    "business": SectionSpec("business", "사업/전략 기상도", 900),
+    "money": SectionSpec("money", "현금흐름", 900),
+    "team": SectionSpec("team", "파트너십/팀", 800),
+    "health": SectionSpec("health", "오너 리스크", 700),
+    "calendar": SectionSpec("calendar", "12개월 캘린더", 800),
+    "sprint": SectionSpec("sprint", "12개월 스프린트", 900),
+    "exec": SectionSpec("exec", "90일 실행 플랜", 900),
 }
 
+# -----------------------------
+# Prompt rules (P0)
+# -----------------------------
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P0-1: 폴백 텍스트 (빈 섹션 방지)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENGINE_HEADLINE = "첫 문장 = ENGINE_HEADLINE. 수정/부정/희석 금지."
 
-def generate_fallback_body(section_id: str, engine_headline: str, survey_data: Dict = None) -> str:
-    """🔥 P0-1: 카드 0개 또는 LLM 실패 시 폴백 텍스트"""
-    spec = PREMIUM_SECTIONS.get(section_id)
-    if not spec:
-        spec = SectionSpec(section_id, "섹션", 10, 500, "분석 중입니다")
-    
-    headline = engine_headline if engine_headline else spec.fallback_headline
-    industry = (survey_data or {}).get("industry", "해당 업종")
-    painPoint = (survey_data or {}).get("painPoint", "현재 병목")
-    
-    return f"""{headline}
-
-## 현재 상황 분석
-
-원인(사주/룰카드) 정보가 충분하지 않아 상세 분석이 제한됩니다.
-설문으로만 억지 추론하는 것은 Root Cause Rule 위반이므로 생략합니다.
-
-### 다음 행동 권장사항
-
-1. **D+14**: {industry} 업종 현황 점검 및 데이터 수집
-2. **D+30**: {painPoint} 관련 핵심 지표 모니터링 시작
-3. **D+60**: 수집된 데이터 기반 전략 재수립
-
-### 체크리스트
-- [ ] 현재 상황 객관적 진단
-- [ ] 핵심 지표 정의
-- [ ] 데이터 수집 체계 구축
-- [ ] 주간 리뷰 일정 확정
-- [ ] 전문가 상담 검토
-
----
-*추가 사주 정보나 룰카드 매칭이 확보되면 더 정밀한 분석이 가능합니다.*
+ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (P0, 절대규칙)
+1) 결론(원인)은 반드시 '사주/룰카드'에서 시작한다. 설문은 '증상'이다.
+2) 설문(industry/painPoint/goal/time)은 "현장에서 어떻게 드러났는지" 설명에만 사용한다.
+3) 금지(실패): "고객님이 설문에서 ~라고 하셔서"를 원인으로 확정하는 서술.
+4) 허용(정답): "원국/룰카드 구조(원인) 때문에 {industry} 현장에서 {painPoint}로 발현(증상)"
+5) 첫 문장 = ENGINE_HEADLINE. 수정/부정/희석 금지.
 """
 
+DATA_COMPLIANCE_RULE = """## 🔴 데이터 준수 철칙 (위반시 실패)
+1) 아래 'Ground Truth saju_summary'에 없는 오행/십성은 "있다"고 주장하지 마라.
+2) is_missing_jaesung=true면, 정재/편재가 "있다"고 말하지 마라.
+3) is_missing_shiksang=true면, 식신/상관이 "있다"고 말하지 마라.
+4) allowed_structure_names 밖의 격국 이름 사용 금지.
+5) 지장간/숨은 십성으로 억지 추론 금지.
+"""
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 데이터 구조 및 스코어링
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+class _SafeDict(dict):
+    def __missing__(self, key):
+        return "미입력"
 
-@dataclass
-class SectionRuleCardAllocation:
-    section_id: str
-    allocated_count: int
-    allocated_card_ids: List[str]
-    context_text: str
-    cards: List[Dict[str, Any]] = field(default_factory=list)
-
-
-def score_card_for_section(card: Dict, section_id: str, survey_data: Dict = None) -> float:
-    spec = PREMIUM_SECTIONS.get(section_id)
-    if not spec:
-        return 1.0
-    score = 1.0
-    topic = (card.get("topic") or "").lower()
-    mechanism = (card.get("mechanism") or "").lower()
-    tags = " ".join(card.get("tags") or []).lower()
-    card_text = f"{topic} {mechanism} {tags}"
-    for tf in spec.topic_filter:
-        if tf.lower() in card_text:
-            score += 3.0
-    if survey_data:
-        pain = (survey_data.get("painPoint") or "").lower()
-        pain_tags = {"lead": ["인맥", "귀인"], "retention": ["비겁", "비견"], "conversion": ["재성", "정재"], "funding": ["재성", "투자"]}
-        for tag in pain_tags.get(pain, []):
-            if tag.lower() in card_text:
-                score += 2.0
-    return score
-
-
-def allocate_rulecards_to_section(all_cards: List[Dict], section_id: str, max_cards: int, used_ids: set, survey_data: Dict = None) -> SectionRuleCardAllocation:
-    scored = []
-    for card in all_cards:
-        cid = card.get("id", card.get("_id", ""))
-        if cid in used_ids:
-            continue
-        score = score_card_for_section(card, section_id, survey_data)
-        scored.append((score, card))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    
-    filtered = [(s, c) for s, c in scored if s > 1.0]
-    if not filtered:
-        logger.warning(f"[CardAlloc] section={section_id} topic_filter hit=0 → fallback")
-        if scored:
-            filtered = scored[:max_cards]
-        elif all_cards:
-            fallback = [c for c in all_cards if c.get("id", c.get("_id", "")) not in used_ids][:max_cards]
-            filtered = [(1.0, c) for c in fallback]
-    
-    allocated = [card for _, card in filtered[:max_cards]]
-    ids, lines = [], []
-    for card in allocated:
-        cid = card.get("id", card.get("_id", ""))
-        ids.append(cid)
-        interp = sanitize_for_business((card.get("interpretation") or "")[:200])
-        lines.append(f"[{cid}] {card.get('topic', '')} | {interp}")
-    
-    logger.info(f"[CardAlloc] section={section_id} | scored={len(scored)} | filtered={len(filtered)} | allocated={len(ids)}")
-    return SectionRuleCardAllocation(section_id, len(ids), ids, "\n".join(lines), allocated)
-
-
-def extract_engine_headline(cards: List[Dict]) -> str:
-    if not cards:
+def _safe_format(template: str, vars: Dict[str, Any]) -> str:
+    if not template:
         return ""
-    top_card = cards[0]
-    interp = top_card.get("interpretation") or top_card.get("content", {}).get("interpretation", "") or top_card.get("mechanism") or ""
-    interp = sanitize_for_business(interp)
-    sentences = re.split(r"[.。!?]", interp)
-    first = sentences[0].strip() if sentences else interp[:100]
-    first = re.sub(r"\{[a-zA-Z_]+\}", "", first)
-    return first if first else interp[:100]
+    try:
+        out = template.format_map(_SafeDict(vars))
+    except Exception:
+        out = template
+    out = re.sub(r"\{[a-zA-Z0-9_]+\}", "미입력", out)
+    return out
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 프롬프트 및 환각 방지 규칙
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# -----------------------------
+# Master sample loader (optional)
+# -----------------------------
 
-ROOT_CAUSE_RULE = """## 🧠 Root Cause Rule (절대규칙)
-- 사주/룰카드(=원인)가 결론이다. 설문(=증상)은 결론이 아니다.
-- 섹션의 첫 문장은 반드시 엔진이 확정한 결론으로 시작한다.
-- 금지: "고객님이 설문에서 ~라고 하셨으니" 같은 서술.
-"""
-
-def build_truth_anchor(saju_data: Dict[str, Any]) -> str:
+def get_master_body_markdown(section_id: str) -> str:
     """
-    🔥 P0-5: LLM 환각(소설) 원천봉쇄용 "팩트 앵커"
-    - 엔진이 확정한 값만 나열하고, 없는 건 언급 금지로 못 박는다.
+    Optional: loads master sample markdown. If unavailable, returns empty.
     """
-    saju_data = saju_data or {}
-    y = saju_data.get("year_pillar") or ""
-    m = saju_data.get("month_pillar") or ""
-    d = saju_data.get("day_pillar") or ""
-    h = saju_data.get("hour_pillar") or ""
-
-    pillars = [p for p in [y, m, d, h] if isinstance(p, str) and p]
-    allowed_chars = sorted({ch for p in pillars for ch in p if ch.strip()})
-
-    summary = saju_data.get("saju_summary") or {}
-    if not isinstance(summary, dict):
-        summary = {}
-
-    ten_present = summary.get("ten_gods_present") or saju_data.get("ten_gods_present") or []
-    elements_count = summary.get("elements_count") or {}
-    elements_present = [k for k, v in elements_count.items() if isinstance(v, (int, float)) and v > 0]
-
-    primary_structure = summary.get("primary_structure") or ""
-    allowed_structures = summary.get("allowed_structure_names") or []
-
-    month_branch_ten_god = saju_data.get("month_branch_ten_god")
-    month_branch_ten_god_txt = str(month_branch_ten_god) if month_branch_ten_god else ""
-
-    return f"""## 🚨 ZERO TOLERANCE RULES (절대 준수 / 위반시 실패)
-너는 명리학자가 아니다. 너는 **엔진이 확정한 팩트만** 문장으로 정리하는 '작가'다.
-
-### 1) 존재/비존재 규칙
-- 4주에 실제로 등장하는 글자(천간/지지)만 언급 허용: {''.join(allowed_chars) if allowed_chars else '(unknown)'}
-- 위 목록에 없는 글자(예: 을/병/자 등)는 **절대 언급 금지**. (지장간, 일반론, 추론 금지)
-
-### 2) 십성/오행은 정답지(saju_summary)만 따른다
-- 원국에 '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
-- 원국에 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
-
-### 3) 격국/용어 제한
-- 격국은 allowed_structure_names 중에서만 사용: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
-- primary_structure(최우선): {primary_structure or '(unknown)'}
-
-### 4) 월지 판정 고정(엔진값 우선)
-- month_pillar={m or '(unknown)'} | 월지 십성(엔진): {month_branch_ten_god_txt or '(not provided)'}
-- 이 값과 다르게 쓰면 실패.
-
-[엔진 확정 4주]
-- year={y} / month={m} / day={d} / hour={h}
-"""
-
-def build_system_prompt(section_id: str, engine_headline: str, survey_data: Dict = None, saju_data: Dict = None, existing_contents: List[str] = None, cards_summary: str = "") -> str:
-    spec = PREMIUM_SECTIONS.get(section_id)
-    if not spec:
+    try:
+        from app.templates.master_samples.index import get_master_sample  # type: ignore
+        sample = get_master_sample(section_id)
+        return sample.get("body_markdown") or sample.get("markdown") or ""
+    except Exception:
         return ""
+
+
+# -----------------------------
+# System prompt builder
+# -----------------------------
+
+def build_system_prompt(
+    section_id: str,
+    saju_data: Dict[str, Any],
+    rulecards: List[Dict[str, Any]],
+    survey_data: Dict[str, Any],
+    target_year: int,
+    user_question: str = "",
+    existing_contents: Optional[List[str]] = None,
+) -> str:
+    spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
     title = spec.title
     min_chars = spec.min_chars
     master_body = get_master_body_markdown(section_id)
-    industry = (survey_data or {}).get("industry", "") or "미입력"
-    painPoint = (survey_data or {}).get("painPoint", "") or "미입력"
-    businessGoal = (survey_data or {}).get("businessGoal", "") or "미입력"
-    survey_context = f"\n## 설문 (증상)\n- 업종: {industry}\n- 고민: {painPoint}\n- 목표: {businessGoal}\n"
-    existing_block = ""
-    if existing_contents:
-        existing_block = f"\n## 이전 섹션 (반복 금지)\n{chr(10).join(existing_contents[-2:])}\n"
-    
-    # 🔥 P0-5: 진실의 닻(Truth Anchor) 블록 적용
-    fact_ctx = build_truth_anchor(saju_data or {})
-    
-    return f"""너는 [{title}] 전문 컨설턴트다.
+
+    # dynamic truth anchor (P0)
+    truth_anchor = build_truth_anchor(
+        saju_data,
+        target_year=target_year,
+        # optionally force these if engine knows:
+        force_gyeok=saju_data.get("primary_structure") or None,
+        force_month_tengod=saju_data.get("month_tengod") or None,
+    )
+
+    # compact rulecards text (top 8)
+    cards_text = []
+    for i, c in enumerate(rulecards[:8]):
+        cards_text.append(
+            f"[{i+1}] topic={c.get('topic','')}\n"
+            f"- interpretation: {c.get('interpretation','')}\n"
+            f"- action: {c.get('action','')}\n"
+        )
+    cards_block = "\n".join(cards_text).strip()
+
+    # survey facts
+    industry = survey_data.get("industry") or ""
+    pain = user_question or survey_data.get("painPoint") or ""
+    goal = survey_data.get("goal") or ""
+    timeframe = survey_data.get("time") or ""
+
+    # ground truth summary json
+    summary = saju_data.get("saju_summary") or {}
+    summary_json = json.dumps(summary, ensure_ascii=False, indent=2)
+
+    existing = "\n\n".join(existing_contents or [])
+    if existing:
+        existing = f"## 기존 생성 내용(중복 금지 참고)\n{existing}\n"
+
+    return f"""{truth_anchor}
 
 {ROOT_CAUSE_RULE}
-{fact_ctx}
 
-## 첫 문장 (수정 금지)
-"{engine_headline}"
+{DATA_COMPLIANCE_RULE}
 
-## 마스터 샘플
-{master_body if master_body else '(자유 작성)'}
+## Ground Truth saju_summary (정답지)
+{summary_json}
 
-## 룰카드
-{cards_summary if cards_summary else '(없음)'}
-{survey_context}
-{existing_block}
+## 사용자 비즈니스 정보
+- 업종: {industry}
+- 고민/질문: {pain}
+- 목표: {goal}
+- 기간: {timeframe}
 
-## 규칙
-1) 첫 문장: 위 엔진 결론으로 시작
-2) 리스크 2개, 액션 3개, 체크리스트 7개
-3) 최소 {min_chars}자, 한국어로만
-"""
+## 엔진 확정 룰카드 (근거로만 사용)
+{cards_block}
+
+## 마스터 샘플 문체 참고 (스타일만)
+{master_body}
+
+{existing}
+
+## 작성 지시
+- 섹션: [{title}] (section_id={section_id})
+- 반드시 {min_chars}자 이상
+- 루프: (원국/룰카드 구조) → (현장 발현) → (실행 액션 3~7개)
+- 금지: '추가 정보 필요', '분석할 수 없음', 사주 지식 자랑, 지장간 추론.
+""".strip()
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 빌더 클래스
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# -----------------------------
+# Builder class
+# -----------------------------
 
 class PremiumReportBuilder:
-    def __init__(self):
-        self._client = None
-        self._semaphore = None
-    
-    def _get_client(self) -> AsyncOpenAI:
-        api_key = get_openai_api_key()
-        return AsyncOpenAI(api_key=api_key, timeout=httpx.Timeout(120.0, connect=15.0), max_retries=2)
-    
-    async def build_premium_report(self, saju_data: Dict, rulecards: List[Dict], feature_tags: List[str] = None, target_year: int = 2026, user_question: str = "", name: str = "고객", job_id: str = None, survey_data: Dict = None, mode: str = "premium"):
-        self._semaphore = asyncio.Semaphore(2)
-        self._client = self._get_client()
-        if job_id:
-            await job_store.start_job(job_id)
-        
-        used_card_ids = set()
-        results = []
-        existing_contents = []
-        
-        for sid in PREMIUM_SECTIONS.keys():
-            spec = PREMIUM_SECTIONS[sid]
-            alloc = allocate_rulecards_to_section(rulecards, sid, spec.max_cards, used_card_ids, survey_data)
-            used_card_ids.update(alloc.allocated_card_ids)
-            engine_headline = extract_engine_headline(alloc.cards)
-            
-            # 🔥 P0-4: 생성 실패 원인 로그 4개 필수
-            headline_len = len(engine_headline) if engine_headline else 0
-            logger.info(f"[Builder] 📊 section={sid} | 1.allocated_count={alloc.allocated_count} | 2.headline_len={headline_len}")
-            
-            try:
-                result = await self._generate_section_safe(
-                    section_id=sid,
-                    saju_data=saju_data,
-                    allocation=alloc,
-                    target_year=target_year,
-                    survey_data=survey_data,
-                    engine_headline=engine_headline,
-                    existing_contents=existing_contents,
-                    job_id=job_id
-                )
-                
-                body = result.get("body_markdown", "")
-                body_len = len(body)
-                
-                # 🔥 P0-4: LLM 응답 길이 + 최종 저장 길이 로그
-                logger.info(f"[Builder] 📊 section={sid} | 3.llm_response_len={result.get('llm_response_len', 0)} | 4.final_body_len={body_len}")
-                
-                if body_len == 0:
-                    logger.error(f"[Builder] ❌ section={sid} | generated_len=0 → EMPTY SECTION")
-                elif body_len < 200:
-                    logger.warning(f"[Builder] ⚠️ section={sid} | generated_len={body_len} < 200 → TOO SHORT")
-                else:
-                    logger.info(f"[Builder] ✅ section={sid} | generated_len={body_len}")
-                
-                if body:
-                    existing_contents.append(body[:300])
-                results.append(result)
-                
-                if job_id:
-                    await job_store.section_done(job_id, sid, body_len)
-                    
-            except Exception as e:
-                logger.exception(f"[Builder] ❌ 섹션 생성 실패: {sid} | {e}")
-                # 🔥 P0-1: 예외 시에도 폴백으로 빈 섹션 방지
-                fallback_body = generate_fallback_body(sid, engine_headline, survey_data)
-                result = {
-                    "section_id": sid,
-                    "title": spec.title,
-                    "body_markdown": fallback_body,
-                    "engine_headline": engine_headline or spec.fallback_headline,
-                    "rulecard_ids": [],
-                    "char_count": len(fallback_body),
-                    "is_fallback": True,
-                    "error": str(e)[:200]
-                }
-                results.append(result)
-        
-        if job_id:
-            await job_store.complete_job(job_id, {"sections": len(results)})
-        return {"status": "success", "sections": results}
-    
-    async def _generate_section_safe(self, section_id: str, saju_data: Dict, allocation: SectionRuleCardAllocation, target_year: int, survey_data: Dict, engine_headline: str, existing_contents: List[str], job_id: str = None) -> Dict[str, Any]:
-        """🔥 P0-1: 빈 섹션 절대 금지 - 카드 0개면 폴백"""
-        spec = PREMIUM_SECTIONS.get(section_id)
-        
-        # 🔥 P0-1(A): 카드 0개면 LLM 호출 X, 즉시 폴백
-        if allocation.allocated_count == 0:
-            logger.warning(f"[Builder] section={section_id} | cards=0 → skip LLM, use fallback")
-            fallback_body = generate_fallback_body(section_id, engine_headline, survey_data)
-            return {
-                "section_id": section_id,
-                "title": spec.title,
-                "body_markdown": fallback_body,
-                "engine_headline": engine_headline or spec.fallback_headline,
-                "rulecard_ids": [],
-                "char_count": len(fallback_body),
-                "llm_response_len": 0,
-                "is_fallback": True
-            }
-        
-        cards_summary = self._build_cards_summary(allocation.cards[:5])
+    def __init__(
+        self,
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 1600,
+        timeout: float = 60.0,
+    ):
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.temperature = float(temperature)
+        self.max_tokens = int(max_tokens)
+        self.timeout = float(timeout)
+
+    async def _call_openai(self, system_prompt: str, user_prompt: str) -> str:
+        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY") or ""
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is missing")
+
+        payload = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        headers = {"Authorization": f"Bearer {api_key}"}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            r = await client.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+            return (data["choices"][0]["message"]["content"] or "").strip()
+
+    async def generate_single_section(
+        self,
+        section_id: str,
+        saju_data: Dict[str, Any],
+        rulecards: List[Dict[str, Any]],
+        survey_data: Dict[str, Any],
+        target_year: int,
+        user_question: str = "",
+        existing_contents: Optional[List[str]] = None,
+        job_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         system_prompt = build_system_prompt(
             section_id=section_id,
-            engine_headline=engine_headline or spec.fallback_headline,
+            saju_data=saju_data,
+            rulecards=rulecards,
             survey_data=survey_data,
-            saju_data=saju_data,  
+            target_year=target_year,
+            user_question=user_question,
             existing_contents=existing_contents,
-            cards_summary=cards_summary
         )
-        user_prompt = self._build_user_prompt(saju_data, allocation, target_year)
-        
-        async with self._semaphore:
-            try:
-                response = await self._client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=4000
-                )
-                body_markdown = response.choices[0].message.content or ""
-            except Exception as e:
-                logger.error(f"[Builder] GPT 호출 실패: {section_id} | {e}")
-                body_markdown = generate_fallback_body(section_id, engine_headline, survey_data)
-        
-        # LLM 응답이 너무 짧으면 폴백
-        if len(body_markdown) < 200:
-            body_markdown = generate_fallback_body(section_id, engine_headline, survey_data)
-        
-        body_markdown = self._enforce_engine_headline(body_markdown, engine_headline or spec.fallback_headline)
-        
-        # 🔥 P0-3: leak 체크 후 치환
-        leaked = check_template_leaks(body_markdown, f"section={section_id}")
-        body_markdown = replace_template_tokens(body_markdown)
-        
+        user_prompt = f"{ENGINE_HEADLINE}\n섹션 [{section_id}] 내용을 작성하라."
+        body = await self._call_openai(system_prompt, user_prompt)
+
+        spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
+
+        used_ids = [c.get("id") for c in rulecards if c.get("id")]
+
         return {
             "section_id": section_id,
             "title": spec.title,
-            "body_markdown": body_markdown,
-            "engine_headline": engine_headline or spec.fallback_headline,
-            "rulecard_ids": allocation.allocated_card_ids,
-            "char_count": len(body_markdown),
-            "llm_response_len": len(body_markdown),
-            "leaked_tokens": leaked
+            "body_markdown": body,
+            "char_count": len(body),
+            "llm_response_len": len(body),
+            "guardrail_violations": [],
+            "repaired": False,
+            "match_summary": {"selected_rulecards": len(rulecards), "model": self.model, "job_id": job_id},
+            "used_rulecard_ids": used_ids[:50],
+            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
-    
-    def _build_cards_summary(self, cards: List[Dict]) -> str:
-        lines = []
-        for i, c in enumerate(cards[:5], 1):
-            interp = (c.get("interpretation") or "")[:80]
-            lines.append(f"{i}. [{c.get('topic', '')}] {interp}")
-        return "\n".join(lines) if lines else "(없음)"
-    
-    def _build_user_prompt(self, saju_data: Dict, allocation: SectionRuleCardAllocation, target_year: int) -> str:
-        year_pillar = saju_data.get("year_pillar", "-")
-        month_pillar = saju_data.get("month_pillar", "-")
-        day_pillar = saju_data.get("day_pillar", "-")
-        hour_pillar = saju_data.get("hour_pillar", "-") or "미입력"
-        day_master = saju_data.get("day_master", "")
-        card_lines = []
-        for c in allocation.cards[:10]:
-            interp = (c.get("interpretation") or "")[:100]
-            card_lines.append(f"- [{c.get('id', '')}] {c.get('topic', '')} | {interp}")
-        return f"""## 사주 원국
-| 년주 | 월주 | 일주 | 시주 |
-|------|------|------|------|
-| {year_pillar} | {month_pillar} | {day_pillar} | {hour_pillar} |
 
-- 일간: {day_master}
-- 분석년도: {target_year}년
+    async def regenerate_single_section(self, *args, **kwargs) -> Dict[str, Any]:
+        # Alias for retry logic
+        return await self.generate_single_section(*args, **kwargs)
 
-## 룰카드
-{chr(10).join(card_lines) if card_lines else '(없음)'}
 
-위 정보로 작성하세요.
-"""
-    
-    def _enforce_engine_headline(self, body_markdown: str, engine_headline: str) -> str:
-        if not engine_headline:
-            return body_markdown
-        headline = engine_headline.strip()
-        body_stripped = body_markdown.lstrip()
-        if body_stripped.startswith(headline):
-            return body_markdown
-        return f"{headline}\n\n{body_stripped}"
-
+# Public singleton used across routers/workers
 premium_report_builder = PremiumReportBuilder()
-report_builder = premium_report_builder
+
+__all__ = [
+    "PREMIUM_SECTIONS",
+    "SectionSpec",
+    "PremiumReportBuilder",
+    "premium_report_builder",
+    "build_system_prompt",
+]
