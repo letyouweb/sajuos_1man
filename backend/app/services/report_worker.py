@@ -352,24 +352,71 @@ class ReportWorker:
 
     def _prepare_saju_data(self, input_json: Dict) -> Dict:
         """사주 데이터 추출 및 정답지 주입"""
+        # 🔥 P0: 디버그 로그 - 실제 들어오는 데이터 구조 확인
+        logger.info(f"[Worker] 🔍 input_json keys: {list(input_json.keys())[:10]}")
+        
         # 🔥 P0 FIX: JSON 문자열 → dict 안전 변환
         saju_result = _ensure_dict(input_json.get("saju_result") or {})
+        
+        # 🔥 P0: saju_result가 비어있으면 다른 경로 시도
+        if not saju_result:
+            # 경로 1: input_json.saju
+            saju_result = _ensure_dict(input_json.get("saju") or {})
+        if not saju_result:
+            # 경로 2: input_json 자체가 saju_result일 수 있음
+            if "year_pillar" in input_json or "day_master" in input_json:
+                saju_result = input_json
+        
+        logger.info(f"[Worker] 🔍 saju_result keys: {list(saju_result.keys())[:10] if saju_result else 'EMPTY'}")
+        
         target_year = input_json.get("target_year", 2026)
         
         def extract_ganji(pillar_data):
             if not pillar_data: return ""
-            return pillar_data.get("ganji", "") if isinstance(pillar_data, dict) else str(pillar_data)
+            if isinstance(pillar_data, dict):
+                # 다양한 키 시도: ganji, value, gan+ji
+                return pillar_data.get("ganji", "") or pillar_data.get("value", "") or (pillar_data.get("gan", "") + pillar_data.get("ji", ""))
+            return str(pillar_data)
         
-        year_pillar = extract_ganji(saju_result.get("year_pillar")) or input_json.get("year_pillar", "")
-        month_pillar = extract_ganji(saju_result.get("month_pillar")) or input_json.get("month_pillar", "")
-        day_pillar = extract_ganji(saju_result.get("day_pillar")) or input_json.get("day_pillar", "")
-        hour_pillar = extract_ganji(saju_result.get("hour_pillar")) or input_json.get("hour_pillar", "")
+        # 🔥 P0: 다양한 경로에서 4주 추출
+        # 경로 1: saju_result.year_pillar
+        year_pillar = extract_ganji(saju_result.get("year_pillar"))
+        month_pillar = extract_ganji(saju_result.get("month_pillar"))
+        day_pillar = extract_ganji(saju_result.get("day_pillar"))
+        hour_pillar = extract_ganji(saju_result.get("hour_pillar"))
         
-        day_master = saju_result.get("day_master", "")
+        # 경로 2: saju_result.saju.year_pillar (nested)
+        if not year_pillar:
+            nested_saju = _ensure_dict(saju_result.get("saju") or {})
+            year_pillar = year_pillar or extract_ganji(nested_saju.get("year_pillar"))
+            month_pillar = month_pillar or extract_ganji(nested_saju.get("month_pillar"))
+            day_pillar = day_pillar or extract_ganji(nested_saju.get("day_pillar"))
+            hour_pillar = hour_pillar or extract_ganji(nested_saju.get("hour_pillar"))
+        
+        # 경로 3: input_json 직접
+        year_pillar = year_pillar or input_json.get("year_pillar", "")
+        month_pillar = month_pillar or input_json.get("month_pillar", "")
+        day_pillar = day_pillar or input_json.get("day_pillar", "")
+        hour_pillar = hour_pillar or input_json.get("hour_pillar", "")
+        
+        # 경로 4: saju_result.year/month/day/hour (dict 구조)
+        if not year_pillar:
+            year_data = _ensure_dict(saju_result.get("year") or {})
+            month_data = _ensure_dict(saju_result.get("month") or {})
+            day_data = _ensure_dict(saju_result.get("day") or {})
+            hour_data = _ensure_dict(saju_result.get("hour") or {})
+            year_pillar = year_pillar or extract_ganji(year_data)
+            month_pillar = month_pillar or extract_ganji(month_data)
+            day_pillar = day_pillar or extract_ganji(day_data)
+            hour_pillar = hour_pillar or extract_ganji(hour_data)
+        
+        logger.info(f"[Worker] 🔍 추출된 4주: 년={year_pillar} 월={month_pillar} 일={day_pillar} 시={hour_pillar}")
+        
+        day_master = saju_result.get("day_master", "") or (day_pillar[0] if day_pillar else "")
         day_master_element = saju_result.get("day_master_element", "")
         day_master_description = saju_result.get("day_master_description", "")
         # 🔥 P0 FIX: birth_info도 안전 변환
-        birth_info = _ensure_dict(saju_result.get("birth_info") or {})
+        birth_info = _ensure_dict(saju_result.get("birth_info") or input_json.get("birth_info") or {})
         
         # 대운 계산
         gender = _normalize_gender(input_json.get("gender") or birth_info.get("gender") or saju_result.get("gender", ""))
