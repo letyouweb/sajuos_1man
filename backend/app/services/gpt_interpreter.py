@@ -75,6 +75,8 @@ class GptInterpreter:
         elements_present = [k for k, v in elements_count.items() if isinstance(v, (int, float)) and v > 0]
         allowed_structures = summary.get("allowed_structure_names") or []
         primary_structure = summary.get("primary_structure") or ""
+        # 🔥 P0: 월지 십성 (엔진값)
+        month_branch_ten_god = saju_data.get("month_branch_ten_god") or saju_data.get("month_ten_god") or ""
 
         return f"""
 ## 🚨 ZERO TOLERANCE RULES (절대 준수)
@@ -82,7 +84,8 @@ class GptInterpreter:
 2) **금지 글자 언급 금지**: [{forbidden_preview}] 및 허용 밖 글자는 절대 언급하지 마라.
 3) **상상 금지**: 지장간/숨은 글자/추론으로 "있다"고 말하지 마라.
 4) **오타 금지**: '걸록격' 사용 금지. (건록격으로 표기)
-5) **데이터 정합성**: 
+5) **월지 십성 고정**: 엔진이 제공한 월지 십성은 `{month_branch_ten_god or '(미제공)'}`이다. (미제공이면 월지 십성 단정 금지)
+6) **데이터 정합성**: 
    - '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
    - 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
    - 허용된 격국: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
