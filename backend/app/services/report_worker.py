@@ -214,8 +214,8 @@ class ReportWorker:
         try:
             input_json = _ensure_dict(job.get("input_json") or {})
             
-            # 이메일 주소
-            to_email = job.get("email") or input_json.get("email") or ""
+            # 🔥 P0 FIX: DB 컬럼명은 user_email (email 아님)
+            to_email = job.get("user_email") or input_json.get("email") or ""
             if not to_email:
                 logger.warning(f"[Worker] 이메일 주소 없음: {job_id}")
                 return
