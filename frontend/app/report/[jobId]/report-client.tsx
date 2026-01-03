@@ -12,7 +12,7 @@ const SECTION_ORDER = ["business_climate", "cashflow", "market_product", "team_p
 
 // 🔥🔥🔥 P0: 신규 섹션 타이틀
 const SECTION_TITLES: Record<string, string> = {
-  business_climate: "🌦️ 2026 비즈니스 전략 기상도",
+  business_climate: "🌦️ 비즈니스 전략 기상도",
   cashflow: "💰 자본 유동성 및 현금흐름 최적화",
   market_product: "📍 시장 포지셔닝 및 상품 확장 전략",
   team_partnership: "🤝 조직 확장 및 파트너십 가이드",
@@ -46,6 +46,54 @@ const TAB_NAMES: Record<string, string> = {
 const safeIncludes = (arr: unknown, value: string): boolean => {
   return Array.isArray(arr) && arr.includes(value);
 };
+
+// 🔥🔥🔥 P0 FIX: 정확도 계산 함수 (단순 hasBirthTime → 복합 조건)
+function calculateAccuracy(data: any): { level: "high" | "medium" | "low"; reason: string } {
+  if (!data) return { level: "low", reason: "데이터 없음" };
+  
+  const saju = data?.input?.saju_result || {};
+  const sajuSummary = saju?.saju_summary || {};
+  const surveyData = data?.input?.survey_data || {};
+  const sections = Array.isArray(data?.sections) ? data.sections : [];
+  
+  // 조건 체크
+  const hasBirthTime = !!(saju?.saju?.hour_pillar || saju?.quality?.has_birth_time);
+  const hasSajuSummary = !!(sajuSummary?.ten_gods_present?.length > 0 || sajuSummary?.elements_count);
+  const hasSurveyData = !!(surveyData?.industry || surveyData?.painPoint || surveyData?.goal);
+  const hasEnoughSections = sections.filter((s: any) => {
+    const content = s?.markdown || s?.body_markdown || "";
+    return content.length > 200;
+  }).length >= 3;
+  
+  // 🔥 P0: 섹션 내용에 "정보 부족", "추가 정보" 등 거절 패턴 있는지 체크
+  const hasRejectionContent = sections.some((s: any) => {
+    const content = s?.markdown || s?.body_markdown || "";
+    return content.includes("정보가 부족") || 
+           content.includes("추가 정보") || 
+           content.includes("작성할 수 없") ||
+           content.includes("죄송");
+  });
+  
+  // 높음: 출생시간 + saju_summary + survey + 충분한 섹션 + 거절 패턴 없음
+  if (hasBirthTime && hasSajuSummary && hasSurveyData && hasEnoughSections && !hasRejectionContent) {
+    return { level: "high", reason: "모든 데이터 확보" };
+  }
+  
+  // 낮음: 거절 패턴 있거나 섹션 부족
+  if (hasRejectionContent || !hasEnoughSections) {
+    return { level: "low", reason: hasRejectionContent ? "콘텐츠 생성 오류" : "섹션 부족" };
+  }
+  
+  // 보통: 나머지
+  const missingParts = [];
+  if (!hasBirthTime) missingParts.push("출생시간");
+  if (!hasSurveyData) missingParts.push("설문");
+  
+  return { 
+    level: "medium", 
+    reason: missingParts.length > 0 ? `${missingParts.join(", ")} 미입력` : "일부 데이터 부족"
+  };
+}
 
 interface ReportClientProps {
   jobId: string;
@@ -315,8 +363,10 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     const { job, input, sections, full_markdown } = data;
     const saju = input?.saju_result || {};
     
+    // 🔥 P0 FIX: target_year는 backend 단일 소스에서만
+    const targetYear = job?.target_year || input?.target_year || new Date().getFullYear() + 1;
+    
     const boundary = saju?.quality?.solar_term_boundary ?? null;
-    const hasBirthTime = saju?.saju?.hour_pillar || saju?.quality?.has_birth_time;
     const birthInfo = saju?.birth_info || "";
     const dayMaster = saju?.day_master || "";
     const dayMasterElement = saju?.day_master_element || "";
@@ -324,6 +374,9 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     const pillars = saju?.saju || {};
     
     const safeSections = Array.isArray(sections) ? sections : [];
+    
+    // 🔥🔥🔥 P0 FIX: 정확도 계산 (복합 조건)
+    const accuracy = calculateAccuracy(data);
     
     return (
       <>
@@ -340,7 +393,8 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
         
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-purple-50 py-8">
           <div className="container mx-auto px-4 max-w-5xl">
-            <Header brandName={BRAND_NAME} />
+            {/* 🔥 P0 FIX: Header에 target_year 전달 */}
+            <Header brandName={BRAND_NAME} targetYear={targetYear} />
 
             {/* 🔥🔥🔥 P0: 액션 버튼 (전체보기 + PDF 저장) */}
             <div className="flex justify-center gap-4 mb-6 no-print">
@@ -362,21 +416,25 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
               </button>
             </div>
 
-            {/* 정확도 배지 */}
+            {/* 🔥🔥🔥 P0 FIX: 정확도 배지 (복합 조건 기반) */}
             <div className="mb-6 no-print">
               <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${
-                hasBirthTime 
-                  ? "bg-green-100 text-green-800 border border-green-200" 
-                  : "bg-yellow-100 text-yellow-800 border border-yellow-200"
+                accuracy.level === "high"
+                  ? "bg-green-100 text-green-800 border border-green-200"
+                  : accuracy.level === "medium"
+                  ? "bg-yellow-100 text-yellow-800 border border-yellow-200"
+                  : "bg-red-100 text-red-800 border border-red-200"
               }`}>
-                {hasBirthTime ? "✅" : "⚠️"} 정확도: {hasBirthTime ? "높음" : "보통"}
-                {!hasBirthTime && " (출생시간 미입력)"}
+                {accuracy.level === "high" ? "✅" : accuracy.level === "medium" ? "⚠️" : "❌"} 
+                정확도: {accuracy.level === "high" ? "높음" : accuracy.level === "medium" ? "보통" : "낮음"}
+                {accuracy.reason && ` (${accuracy.reason})`}
               </div>
             </div>
 
             {/* 사주 원국 카드 */}
             <div className="bg-gradient-to-r from-purple-600 to-amber-500 text-white rounded-2xl p-6 mb-8 shadow-lg">
-              <h2 className="text-xl font-bold mb-2">📜 사주 원국</h2>
+              {/* 🔥 P0 FIX: 연도 단일 소스 */}
+              <h2 className="text-xl font-bold mb-2">📜 {targetYear}년 사주 원국</h2>
               {birthInfo && <p className="text-purple-100 mb-4">{birthInfo}</p>}
               
               <div className="grid grid-cols-4 gap-3 mb-4">
@@ -457,8 +515,9 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                     
                     return (
                       <div key={sid} className="p-6 md:p-8">
+                        {/* 🔥 P0 FIX: 섹션 타이틀에 연도 (단일 소스) */}
                         <h2 className="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">
-                          {SECTION_ICONS[sid] || "📄"} {title}
+                          {SECTION_ICONS[sid] || "📄"} {targetYear}년 {title.replace(/🌦️|💰|📍|🤝|🧯|🗓️|🚀/g, "").trim()}
                         </h2>
                         
                         {markdown ? (
@@ -500,7 +559,7 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                       return (
                         <div key={sid} className="mb-8 pb-8 border-b last:border-b-0">
                           <h2 className="text-2xl font-bold text-purple-800 mb-4">
-                            {SECTION_ICONS[sid] || "📄"} {title}
+                            {SECTION_ICONS[sid] || "📄"} {targetYear}년 {title.replace(/🌦️|💰|📍|🤝|🧯|🗓️|🚀/g, "").trim()}
                           </h2>
                           {markdown ? (
                             <ReactMarkdown>{markdown}</ReactMarkdown>
@@ -528,11 +587,8 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
               </div>
             )}
 
-            {/* 푸터 */}
-            <footer className="text-center py-8 text-sm text-gray-500 no-print">
-              <p>⚠️ 본 서비스는 오락/참고 목적으로 제공되며, 의학/법률/투자 등 전문적 조언을 대체하지 않습니다.</p>
-              <p className="mt-2">© 2025 {BRAND_NAME}. All rights reserved.</p>
-            </footer>
+            {/* 🔥🔥🔥 P0 FIX: 푸터 1개만 (레이아웃/페이지 중복 제거) */}
+            <Footer brandName={BRAND_NAME} />
           </div>
         </div>
       </>
@@ -549,14 +605,26 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
   );
 }
 
-// 헤더 컴포넌트
-function Header({ brandName }: { brandName: string }) {
+// 🔥 P0 FIX: 헤더 컴포넌트 (target_year 단일 소스)
+function Header({ brandName, targetYear }: { brandName: string; targetYear?: number }) {
   return (
     <header className="text-center py-6">
       <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-amber-500 bg-clip-text text-transparent">
         🔮 {brandName}
       </h1>
-      <p className="text-slate-600 mt-2">프리미엄 비즈니스 컨설팅 보고서</p>
+      <p className="text-slate-600 mt-2">
+        {targetYear ? `${targetYear}년` : ""} 프리미엄 비즈니스 컨설팅 보고서
+      </p>
     </header>
+  );
+}
+
+// 🔥🔥🔥 P0 FIX: 푸터 컴포넌트 (1개만 렌더)
+function Footer({ brandName }: { brandName: string }) {
+  return (
+    <footer className="text-center py-8 text-sm text-gray-500 no-print">
+      <p>⚠️ 본 서비스는 오락/참고 목적으로 제공되며, 의학/법률/투자 등 전문적 조언을 대체하지 않습니다.</p>
+      <p className="mt-2">© {new Date().getFullYear()} {brandName}. All rights reserved.</p>
+    </footer>
   );
 }

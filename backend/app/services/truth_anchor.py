@@ -2,6 +2,8 @@
 truth_anchor.py
 Dynamic Truth Anchor for premium reports.
 Prevents LLM hallucinations by explicitly declaring allowed/forbidden stems/branches.
+
+🔥 P0 FIX: "실패 처리됨" 톤 제거 → "대체 출력" 방식으로 변경
 """
 
 from __future__ import annotations
@@ -38,19 +40,14 @@ def forbidden_words_for_rulecards(saju_data: Dict[str, Any]) -> List[str]:
     🔥 P0 FIX: RuleCard 물리적 차단용 금지어 - ENV로 토글
     
     ENV: RULECARD_PHYSICAL_FILTER
-    - "0" 또는 미설정 (기본값): 빈 리스트 반환 (필터 OFF)
+    - "0" 또는 미설정 (기본): 빈 리스트 반환 (필터 OFF)
     - "1": 오타 토큰만 반환 (걸록, 걸록격)
-    
-    운영 환경에서는 기본 OFF로 두고, 필요 시에만 활성화.
-    LLM 환각 방지는 Truth Anchor 프롬프트에서 처리함.
     """
-    # ENV 토글: 기본 OFF
     filter_enabled = os.getenv("RULECARD_PHYSICAL_FILTER", "0") == "1"
     
     if not filter_enabled:
         return []  # 필터 비활성화
     
-    # 필터 활성화 시: 오타 토큰만 반환
     return sorted(_STATIC_FORBIDDEN_TOKENS)
 
 
@@ -63,13 +60,9 @@ def build_truth_anchor(
     """
     Dynamic truth anchor injected into prompts.
     
-    🔥 P0 FIX: "금지 글자" 규칙 제거
-    → "원국 4주에 제공된 간지 외 추가 생성 금지"로 변경
-    
-    Parameters:
-        saju_data: 사주 데이터 dict (year_pillar, month_pillar 등 포함)
-        target_year: 목표 연도 (예: 2026)
-        section_id: 섹션 ID (optional)
+    🔥 P0 FIX: 
+    - "실패 처리됨" 톤 제거
+    - "대체 출력" 방식 적용 (정보 없으면 가정/보완 전략으로 계속 작성)
     """
     saju_data = saju_data or {}
 
@@ -101,34 +94,43 @@ def build_truth_anchor(
         saju_data.get("month_tengod") or 
         ""
     )
+    
+    # 재성/식상 결핍 여부
+    is_missing_jaesung = summary.get("is_missing_jaesung", False)
+    is_missing_shiksang = summary.get("is_missing_shiksang", False)
 
     # section/year context
     section_str = f"섹션: {section_id} / " if section_id else ""
     year_str = f"목표 연도: {target_year}" if target_year else "목표 연도: (미지정)"
 
-    return f"""## 🚨 ZERO TOLERANCE RULES (절대 준수)
+    return f"""## 📌 원국 데이터 (Ground Truth)
 - {section_str}{year_str}
 
-### 원국 4주 (Ground Truth)
+### 원국 4주
 - 년주: {year_pillar}
 - 월주: {month_pillar}
 - 일주: {day_pillar}
 - 시주: {hour_pillar}
 - (허용 글자: {allowed_preview})
 
-### 절대 금지 사항
-1) **원국 외 간지 생성 금지**: 위 4주에 없는 천간/지지를 원국에 "있다"고 단정하지 마라.
-2) **지장간/숨은 글자 추론 금지**: 지장간이나 숨은 오행으로 "있다"고 확대 해석 금지.
-3) **오타 금지**: '걸록격' → '건록격'으로 올바르게 표기.
-4) **월지 십성 고정**: 엔진 제공 월지 십성 = `{month_branch_ten_god or '(미제공)'}` (미제공이면 단정 금지)
+### 확인된 십성/오행
+- 십성: {', '.join(ten_present) if ten_present else '(미제공 - 일반 전략으로 작성)'}
+- 오행: {', '.join(elements_present) if elements_present else '(미제공 - 일반 전략으로 작성)'}
+- 격국: {primary_structure or '(미제공 - 일반 격국으로 가정)'}
+- 월지 십성: {month_branch_ten_god or '(미제공)'}
 
-### 데이터 정합성
-- '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(엔진 미제공)'}
-- 실제 존재하는 오행: {', '.join(elements_present) if elements_present else '(엔진 미제공)'}
-- 허용된 격국: {', '.join(allowed_structures[:10]) if allowed_structures else '(엔진 미제공)'}
-- 최우선 격국: {primary_structure or '(엔진 미제공)'}
+### 결핍 정보 (대체 전략 필요)
+- 재성 결핍: {'예 → "현금흐름 보완 전략"으로 서술' if is_missing_jaesung else '아니오'}
+- 식상 결핍: {'예 → "마케팅/표현력 강화"로 서술' if is_missing_shiksang else '아니오'}
 
-[중요] 위 원국 4주에 없는 간지를 원국에 있는 것처럼 서술하면 실패 처리됨.
+### 작성 규칙 (출력 지속)
+1) **원국 외 간지 단정 금지**: 위 4주에 없는 천간/지지를 "있다"고 단정하지 마라.
+2) **미확인 데이터 처리**: 정보가 없으면 "(미확인)" 또는 "[가정]" 표기 후 일반 전략으로 계속 작성.
+3) **결핍 대체 서술**: 재성/식상이 없어도 "보완 전략/운영 방안"으로 현금흐름/마케팅을 말할 수 있음.
+4) **오타 방지**: '걸록격' → '건록격'으로 올바르게 표기.
+5) **거절 금지**: "정보 부족", "작성 불가" 등 거절 문구 없이 반드시 작성 완료.
+
+⚠️ 중요: 불확실한 부분이 있어도 "[가정]" 표기하고 작성을 계속한다. 질문은 본문 맨 끝에만 추가.
 """.strip()
 
 
