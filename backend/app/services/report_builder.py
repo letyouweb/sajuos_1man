@@ -1,7 +1,7 @@
 """
 report_builder.py
 Premium section generator:
-- Uses master sample markdown per section
+- 🔥🔥🔥 마스터 샘플 템플릿 기반 (빈칸 채우기 방식)
 - Uses selected RuleCards
 - Injects dynamic Truth Anchor to prevent hallucinations
 - 🔥 P0: LLM 거절 응답 감지 시 1회 자동 재시도
@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from app.services.truth_anchor import build_truth_anchor
+from app.services.persona_classifier import classify_persona, get_persona_description
+from app.services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +234,27 @@ def _safe_format(template: str, vars: Dict[str, Any]) -> str:
 
 
 # -----------------------------
-# Master sample loader (optional)
+# Master sample loader (🔥 Supabase 기반)
 # -----------------------------
+
+async def get_master_sample_from_db(section_id: str, persona_id: str = "standard") -> Dict[str, Any]:
+    """
+    🔥 마스터 샘플 조회 (Supabase)
+    - persona 매칭 → standard 폴백
+    """
+    try:
+        sample = await supabase_service.get_master_sample(persona_id, section_id)
+        if sample:
+            return sample
+    except Exception as e:
+        logger.warning(f"[Builder] 마스터샘플 조회 실패: {e}")
+    
+    return {"title": "", "body_markdown": ""}
+
 
 def get_master_body_markdown(section_id: str) -> str:
     """Optional: loads master sample markdown. If unavailable, returns empty."""
+    # 🔥 Deprecated: 동기 버전 (하위 호환)
     try:
         from app.templates.master_samples.index import get_master_sample  # type: ignore
         sample = get_master_sample(section_id)
@@ -246,7 +264,7 @@ def get_master_body_markdown(section_id: str) -> str:
 
 
 # -----------------------------
-# System prompt builder
+# System prompt builder (🔥 마스터 샘플 템플릿 채우기 방식)
 # -----------------------------
 
 def build_system_prompt(
@@ -258,12 +276,16 @@ def build_system_prompt(
     user_question: str = "",
     existing_contents: Optional[List[str]] = None,
     truth_anchor_override: Optional[str] = None,
-    is_retry: bool = False,  # 🔥 재시도 여부
+    is_retry: bool = False,
+    master_template: str = "",  # 🔥 마스터 샘플 템플릿
+    persona_id: str = "standard",  # 🔥 페르소나
 ) -> str:
     spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
     title = spec.title
     min_chars = spec.min_chars
-    master_body = get_master_body_markdown(section_id)
+    
+    # 🔥 마스터 템플릿이 없으면 기존 방식
+    master_body = master_template or get_master_body_markdown(section_id)
 
     # dynamic truth anchor
     if truth_anchor_override:
@@ -301,7 +323,50 @@ def build_system_prompt(
 
     # 🔥 재시도 시 강화 프롬프트 추가
     retry_block = NO_REJECTION_RULE if is_retry else ""
+    
+    # 🔥🔥🔥 마스터 샘플 기반 프롬프트 (템플릿 채우기 방식)
+    if master_body:
+        return f"""{truth_anchor}
 
+## 🔥🔥🔥 핵심 원칙: 템플릿 빈칸 채우기 (구조 유지)
+1) 아래 [마스터 템플릿]의 **구조와 헤더를 그대로 유지**한다.
+2) {{변수명}} 형태의 빈칸을 [팩트 앵커]와 [룰카드]의 정보로 채운다.
+3) 문장은 자연스럽게 다듬되, **새로운 사실을 추가로 생성하지 않는다.**
+4) [팩트 앵커]나 [룰카드]에 없는 사주 용어 사용 금지.
+5) 템플릿의 섹션 순서, 제목, 구조를 **절대 변경하지 않는다.**
+
+{retry_block}
+
+## Ground Truth saju_summary (정답지)
+{summary_json}
+
+## 사용자 비즈니스 정보
+- 업종: {industry}
+- 고민/질문: {pain}
+- 목표: {goal}
+- 기간: {timeframe}
+- 페르소나: {persona_id} ({get_persona_description(persona_id)})
+
+## 엔진 확정 룰카드 (근거로만 사용)
+{cards_block}
+
+## [마스터 템플릿] - 이 구조를 유지하며 빈칸만 채워라
+---
+{master_body}
+---
+
+{existing}
+
+## 작성 지시
+- 섹션: [{title}] (section_id={section_id})
+- 반드시 {min_chars}자 이상
+- **템플릿 구조 유지 필수**: 헤더, 섹션 순서 변경 금지
+- **추가 사실 생성 금지**: 팩트 앵커/룰카드에 없는 내용 금지
+- **사주 용어 제한**: 팩트 앵커에 명시된 용어만 사용
+- 금지: 사과, 거절, '추가 정보 필요', '분석할 수 없음'
+""".strip()
+    
+    # 🔥 마스터 템플릿 없을 때 기존 방식
     return f"""{truth_anchor}
 
 {ROOT_CAUSE_RULE}
@@ -321,9 +386,6 @@ def build_system_prompt(
 
 ## 엔진 확정 룰카드 (근거로만 사용)
 {cards_block}
-
-## 마스터 샘플 문체 참고 (스타일만)
-{master_body}
 
 {existing}
 
@@ -386,12 +448,23 @@ class PremiumReportBuilder:
         existing_contents: Optional[List[str]] = None,
         job_id: Optional[str] = None,
         truth_anchor: Optional[str] = None,
+        persona_id: Optional[str] = None,  # 🔥 외부에서 전달 가능
     ) -> Dict[str, Any]:
         """
-        섹션 생성 + 🔥 거절 응답 감지 시 1회 자동 재시도
+        섹션 생성 + 🔥 마스터 샘플 기반 + 거절 응답 감지 시 1회 자동 재시도
         """
         spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
         user_prompt = f"{ENGINE_HEADLINE}\n섹션 [{section_id}] 내용을 작성하라."
+        
+        # 🔥 페르소나 분류
+        if not persona_id:
+            persona_id = classify_persona(saju_data)
+        
+        # 🔥 마스터 샘플 조회 (Supabase)
+        master_sample = await get_master_sample_from_db(section_id, persona_id)
+        master_template = master_sample.get("body_markdown", "")
+        
+        logger.info(f"[Builder] 섹션 생성 시작: {section_id} | persona={persona_id} | template={len(master_template)}자")
         
         body = ""
         retried = False
@@ -412,6 +485,8 @@ class PremiumReportBuilder:
                 existing_contents=existing_contents,
                 truth_anchor_override=truth_anchor,
                 is_retry=is_retry,
+                master_template=master_template,  # 🔥 마스터 템플릿 전달
+                persona_id=persona_id,  # 🔥 페르소나 전달
             )
             
             try:
@@ -425,22 +500,18 @@ class PremiumReportBuilder:
             is_rejection, patterns = _detect_rejection(body)
             
             if is_rejection and attempt == 0:
-                # 🔥 P0: 상세 로깅 (attempt, matched_patterns)
                 logger.warning(f"[Builder] 거절 응답 감지 (section={section_id}, attempt=1, matched_patterns={patterns}) → 재시도")
                 retried = True
                 rejection_detected = True
                 rejection_patterns = patterns
                 continue
             elif is_rejection and attempt == 1:
-                # 🔥 P0: 재시도 후에도 거절 → Fallback 템플릿 사용
                 logger.error(f"[Builder] 재시도 후에도 거절 (section={section_id}, attempt=2, matched_patterns={patterns}) → Fallback 사용")
                 rejection_detected = True
                 rejection_patterns = patterns
-                # 🔥 Fallback 템플릿 (사과 없이 최소 600자)
                 body = _generate_fallback_content(section_id, spec.title, saju_data, survey_data, target_year)
                 break
             else:
-                # 정상 응답
                 if is_retry:
                     logger.info(f"[Builder] ✅ 재시도 성공 (section={section_id})")
                 break
@@ -456,12 +527,15 @@ class PremiumReportBuilder:
             "guardrail_violations": rejection_patterns if rejection_detected else [],
             "repaired": retried,
             "rejection_detected": rejection_detected,
-            "fallback_used": rejection_detected and retried,  # 🔥 P0: Fallback 사용 여부
+            "fallback_used": rejection_detected and retried,
+            "persona_id": persona_id,  # 🔥 사용된 페르소나
+            "master_template_used": bool(master_template),  # 🔥 마스터 템플릿 사용 여부
             "match_summary": {
                 "selected_rulecards": len(rulecards),
                 "model": self.model,
                 "job_id": job_id,
                 "retried": retried,
+                "persona": persona_id,
             },
             "used_rulecard_ids": used_ids[:50],
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),

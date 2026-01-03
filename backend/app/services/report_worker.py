@@ -21,6 +21,7 @@ from app.services.supabase_service import supabase_service
 from app.services.report_builder import premium_report_builder
 from app.services.truth_anchor import build_truth_anchor, forbidden_words_for_rulecards
 from app.services.email_service import EmailService
+from app.services.persona_classifier import classify_persona
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,10 @@ class ReportWorker:
         if not target_year:
             target_year = time.localtime().tm_year
 
+        # 🔥🔥🔥 페르소나 분류 (마스터 샘플 선택용)
+        persona_id = classify_persona(saju_data)
+        logger.info(f"[Worker] 🎭 페르소나 분류: {persona_id}")
+
         # sections
         requested_sections = _ensure_list(input_json.get("sections"))
         section_ids = [s for s in requested_sections if isinstance(s, str)] or list(self.DEFAULT_SECTION_IDS)
@@ -171,6 +176,7 @@ class ReportWorker:
                     target_year=target_year,
                     user_question=user_question,
                     all_cards=all_cards,
+                    persona_id=persona_id,  # 🔥 페르소나 전달
                 )
                 completed_sections.append(section_id)
                 # 진행률 업데이트 (10~90%)
@@ -358,6 +364,7 @@ class ReportWorker:
         target_year: int,
         user_question: str,
         all_cards: List[Dict[str, Any]],
+        persona_id: str = "standard",  # 🔥 페르소나 파라미터 추가
     ) -> None:
         selected_cards = self._select_rulecards_for_section(all_cards=all_cards, section_id=section_id)
         
@@ -377,11 +384,12 @@ class ReportWorker:
             user_question=user_question,
             truth_anchor=truth_anchor,
             job_id=job_id,
+            persona_id=persona_id,  # 🔥 페르소나 전달
         )
 
         # 🔥 P0 FIX: save_section도 async
         await self.supabase.save_section(job_id=job_id, section_id=section_id, content_json=result)
-        logger.info(f"[Worker] 섹션 저장 완료: {section_id} ({result.get('char_count', 0)}자)")
+        logger.info(f"[Worker] 섹션 저장 완료: {section_id} ({result.get('char_count', 0)}자) | persona={persona_id}")
 
     def _select_rulecards_for_section(self, all_cards: List[Dict[str, Any]], section_id: str, k: int = 24) -> List[Dict[str, Any]]:
         if not all_cards:

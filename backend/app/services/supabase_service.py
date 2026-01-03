@@ -249,6 +249,79 @@ class SupabaseService:
         }).eq("id", job_id).execute()
         logger.error(f"[Supabase] ❌ Job 실패: {job_id}")
     
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 🔥 마스터 샘플 조회
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    async def get_master_sample(self, persona_id: str, section_id: str) -> Optional[Dict]:
+        """
+        마스터 샘플 조회 (persona 기반 + standard 폴백)
+        
+        Args:
+            persona_id: 페르소나 ID (예: "fire_dominant", "water_weak", "standard")
+            section_id: 섹션 ID (예: "exec", "money", "business")
+            
+        Returns:
+            {"persona_id", "section_id", "title", "body_markdown"} 또는 None
+        """
+        client = self._get_client()
+        
+        try:
+            # 1차: persona 매칭
+            res = (client.table("master_samples")
+                   .select("persona_id, section_id, title, body_markdown")
+                   .eq("persona_id", persona_id)
+                   .eq("section_id", section_id)
+                   .limit(1)
+                   .execute())
+            
+            if res.data:
+                logger.info(f"[Supabase] 마스터샘플 조회 (persona={persona_id}): {section_id}")
+                return res.data[0]
+            
+            # 2차: standard로 폴백
+            res2 = (client.table("master_samples")
+                    .select("persona_id, section_id, title, body_markdown")
+                    .eq("persona_id", "standard")
+                    .eq("section_id", section_id)
+                    .limit(1)
+                    .execute())
+            
+            if res2.data:
+                logger.info(f"[Supabase] 마스터샘플 조회 (fallback=standard): {section_id}")
+                return res2.data[0]
+            
+            logger.warning(f"[Supabase] 마스터샘플 없음: persona={persona_id}, section={section_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"[Supabase] 마스터샘플 조회 에러: {e}")
+            return None
+    
+    async def get_all_master_samples(self, persona_id: str) -> List[Dict]:
+        """
+        특정 persona의 모든 마스터 샘플 조회
+        
+        Args:
+            persona_id: 페르소나 ID
+            
+        Returns:
+            [{"persona_id", "section_id", "title", "body_markdown"}, ...]
+        """
+        client = self._get_client()
+        
+        try:
+            res = (client.table("master_samples")
+                   .select("persona_id, section_id, title, body_markdown")
+                   .eq("persona_id", persona_id)
+                   .order("section_id")
+                   .execute())
+            
+            return res.data if res.data else []
+            
+        except Exception as e:
+            logger.error(f"[Supabase] 마스터샘플 전체 조회 에러: {e}")
+            return []
+    
     async def save_section(self, job_id: str, section_id: str, content_json: Dict = None):
         """
         🔥🔥🔥 P0 핵심: 섹션 저장
