@@ -7,45 +7,23 @@ import ReactMarkdown from "react-markdown";
 // 🔥 P0: API URL 단일화
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.sajuos.com";
 
-// 🔥🔥🔥 P0 FIX: 백엔드 섹션 ID와 일치시킴
-const SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"];
+// 🔥🔥🔥 P0 FIX: target_year 기본값 고정 (2026 시즌)
+const DEFAULT_TARGET_YEAR = 2026;
 
-// 🔥🔥🔥 P0 FIX: 백엔드 ID 기준 타이틀
-const SECTION_TITLES: Record<string, string> = {
-  exec: "🚀 90일 실행 플랜",
-  money: "💰 현금흐름 최적화",
-  business: "🌦️ 비즈니스 전략",
-  team: "🤝 파트너십/팀",
-  health: "🧯 오너 리스크",
-  calendar: "🗓️ 12개월 캘린더",
-  sprint: "📍 스프린트 전략",
-};
+// 🔥🔥🔥 P0 FIX: SECTION_SPECS 단일 소스 (ID/라벨 분리 금지!)
+const SECTION_SPECS = [
+  { id: "exec",     title: "전략 기상도",     icon: "🌦️", tabName: "전략",     order: 1 },
+  { id: "money",    title: "현금흐름 최적화", icon: "💰", tabName: "현금흐름", order: 2 },
+  { id: "business", title: "비즈니스 전략",   icon: "📍", tabName: "시장전략", order: 3 },
+  { id: "team",     title: "파트너십/팀",     icon: "🤝", tabName: "파트너십", order: 4 },
+  { id: "health",   title: "오너 리스크",     icon: "🧯", tabName: "리스크",   order: 5 },
+  { id: "calendar", title: "12개월 캘린더",   icon: "🗓️", tabName: "12개월",   order: 6 },
+  { id: "sprint",   title: "90일 액션플랜",   icon: "🚀", tabName: "90일플랜", order: 7 },
+].sort((a, b) => a.order - b.order);
 
-const SECTION_ICONS: Record<string, string> = {
-  exec: "🚀",
-  money: "💰",
-  business: "🌦️",
-  team: "🤝",
-  health: "🧯",
-  calendar: "🗓️",
-  sprint: "📍",
-};
-
-// 🔥🔥🔥 P0 FIX: 탭 버튼용 짧은 이름
-const TAB_NAMES: Record<string, string> = {
-  exec: "90일플랜",
-  money: "현금흐름",
-  business: "전략",
-  team: "파트너십",
-  health: "리스크",
-  calendar: "12개월",
-  sprint: "스프린트",
-};
-
-// 🔥 P0 FIX: 안전한 section_id 추출 (sectionId, section_id, id 모두 지원)
-const getSectionId = (s: any): string => {
-  return s?.section_id ?? s?.sectionId ?? s?.id ?? "";
-};
+// 🔥 P0: 헬퍼 함수들
+const getSpec = (id: string) => SECTION_SPECS.find(s => s.id === id);
+const getSectionId = (s: any): string => s?.section_id ?? s?.sectionId ?? s?.id ?? "";
 
 // 🔥 P0: 안전한 includes 헬퍼
 const safeIncludes = (arr: unknown, value: string): boolean => {
@@ -336,13 +314,13 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
 
             {sections.length > 0 && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {SECTION_ORDER.map((sid) => {
-                  // 🔥 P0 FIX: 안전한 section_id 추출
-                  const section = sections.find((s: any) => getSectionId(s) === sid);
+                {SECTION_SPECS.map((spec) => {
+                  // 🔥 P0 FIX: SECTION_SPECS 단일 소스 사용
+                  const section = sections.find((s: any) => getSectionId(s) === spec.id);
                   const sectionStatus = section?.status || "pending";
                   return (
                     <div
-                      key={sid}
+                      key={spec.id}
                       className={`px-3 py-2 rounded-lg text-xs font-medium text-center ${
                         sectionStatus === "completed"
                           ? "bg-green-100 text-green-700"
@@ -351,7 +329,7 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                           : "bg-gray-100 text-gray-500"
                       }`}
                     >
-                      {SECTION_ICONS[sid] || "📄"} {sid}
+                      {spec.icon} {spec.tabName}
                     </div>
                   );
                 })}
@@ -370,8 +348,13 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     const { job, input, sections, full_markdown } = data;
     const saju = input?.saju_result || {};
     
-    // 🔥 P0 FIX: target_year는 backend 단일 소스에서만
-    const targetYear = job?.target_year || input?.target_year || new Date().getFullYear() + 1;
+    // 🔥🔥🔥 P0 FIX: target_year 단일 소스 (+1 제거, 2026 고정)
+    const targetYear = 
+      job?.target_year ?? 
+      job?.targetYear ?? 
+      input?.target_year ?? 
+      input?.targetYear ?? 
+      DEFAULT_TARGET_YEAR;
     
     // 🔥 P0 FIX: ready 플래그로 빈 본문 노출 방지
     const isReady = data?.ready ?? true;  // 백엔드에서 ready 없으면 기본 true (하위 호환)
@@ -385,9 +368,9 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     
     const safeSections = Array.isArray(sections) ? sections : [];
     
-    // 🔥🔥🔥 P0 FIX: 탭에 표시할 섹션 수 계산 (탭 0개 방지)
-    const matchedTabCount = SECTION_ORDER.filter(sid => 
-      safeSections.some(s => getSectionId(s) === sid)
+    // 🔥🔥🔥 P0 FIX: 탭에 표시할 섹션 수 계산 (SECTION_SPECS 사용)
+    const matchedTabCount = SECTION_SPECS.filter(spec => 
+      safeSections.some(s => getSectionId(s) === spec.id)
     ).length;
     
     // 🔥 P0: 탭이 0개면 자동으로 전체보기 모드로 전환
@@ -533,24 +516,24 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
             {/* 🔥🔥🔥 P0: 탭 모드 vs 전체보기 모드 */}
             {effectiveViewMode === "tabs" && safeSections.length > 0 && (
               <>
-                {/* 탭 네비게이션 */}
+                {/* 탭 네비게이션 - SECTION_SPECS 단일 소스 사용 */}
                 <div className="flex flex-wrap gap-2 mb-6 bg-white rounded-xl p-2 shadow no-print">
-                  {SECTION_ORDER.map((sid) => {
-                    // 🔥 P0 FIX: 안전한 section_id 추출
-                    const section = safeSections.find((s: any) => getSectionId(s) === sid);
+                  {SECTION_SPECS.map((spec) => {
+                    // 🔥 P0 FIX: SECTION_SPECS에서 직접 ID/라벨 가져옴
+                    const section = safeSections.find((s: any) => getSectionId(s) === spec.id);
                     if (!section) return null;
                     
                     return (
                       <button
-                        key={sid}
-                        onClick={() => setActiveSection(sid)}
+                        key={spec.id}
+                        onClick={() => setActiveSection(spec.id)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                          activeSection === sid
+                          activeSection === spec.id
                             ? "bg-purple-600 text-white shadow"
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         }`}
                       >
-                        {SECTION_ICONS[sid] || "📄"} {TAB_NAMES[sid] || sid}
+                        {spec.icon} {spec.tabName}
                       </button>
                     );
                   })}
@@ -563,14 +546,15 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                     const sid = getSectionId(section);
                     if (sid !== activeSection) return null;
                     
+                    const spec = getSpec(sid);
                     const markdown = section?.markdown || section?.body_markdown || section?.bodyMarkdown || section?.content || "";
-                    const title = section?.title || section?.sectionTitle || SECTION_TITLES[sid] || sid;
+                    const title = spec?.title || section?.title || section?.sectionTitle || sid;
                     
                     return (
                       <div key={sid} className="p-6 md:p-8">
-                        {/* 🔥 P0 FIX: 섹션 타이틀에 연도 (단일 소스) */}
+                        {/* 🔥 P0 FIX: 섹션 타이틀 (SECTION_SPECS 단일 소스) */}
                         <h2 className="text-2xl font-bold text-gray-800 mb-6 pb-4 border-b">
-                          {SECTION_ICONS[sid] || "📄"} {targetYear}년 {title.replace(/🌦️|💰|📍|🤝|🧯|🗓️|🚀/g, "").trim()}
+                          {spec?.icon || "📄"} {targetYear}년 {title}
                         </h2>
                         
                         {markdown ? (
@@ -605,15 +589,16 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                   // full_markdown이 없으면 섹션별 markdown을 합쳐서 렌더
                   <div className="prose prose-purple max-w-none">
                     {safeSections.map((section: any) => {
-                      // 🔥 P0 FIX: 안전한 section_id 추출
+                      // 🔥 P0 FIX: SECTION_SPECS 단일 소스 사용
                       const sid = getSectionId(section);
+                      const spec = getSpec(sid);
                       const markdown = section?.markdown || section?.body_markdown || section?.bodyMarkdown || "";
-                      const title = section?.title || section?.sectionTitle || SECTION_TITLES[sid] || sid;
+                      const title = spec?.title || section?.title || section?.sectionTitle || sid;
                       
                       return (
                         <div key={sid} className="mb-8 pb-8 border-b last:border-b-0">
                           <h2 className="text-2xl font-bold text-purple-800 mb-4">
-                            {SECTION_ICONS[sid] || "📄"} {targetYear}년 {title.replace(/🌦️|💰|📍|🤝|🧯|🗓️|🚀/g, "").trim()}
+                            {spec?.icon || "📄"} {targetYear}년 {title}
                           </h2>
                           {markdown ? (
                             <ReactMarkdown>{markdown}</ReactMarkdown>
