@@ -104,6 +104,13 @@ class CalculateResponse(BaseModel):
     day_master_element: str = Field(..., description="일간 오행")
     day_master_description: str = Field(..., description="일간 설명")
     
+    # 🔥🔥🔥 P0: 사주 분석 정답지 (팩트 앵커)
+    saju_summary: Optional[Dict[str, Any]] = Field(None, description="사주 분석 정답지 (십성/오행/격국)")
+    month_branch_ten_god: Optional[str] = Field(None, description="월지 십성")
+    gyeokguk: Optional[str] = Field(None, description="격국")
+    elements_present: Optional[List[str]] = Field(None, description="원국에 존재하는 오행")
+    ten_gods_present: Optional[List[str]] = Field(None, description="원국에 존재하는 십성")
+    
     # 대운 정보
     daeun: Optional[DaeunInfo] = None
     

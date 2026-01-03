@@ -8,6 +8,7 @@ Source of Truth 우선순위:
 특징:
 - API 실패시 자동 fallback (서비스 무중단)
 - 태양시 보정 ON/OFF 토글 지원
+- 🔥 P0: saju_summary (팩트 앵커) 포함
 """
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
@@ -21,6 +22,7 @@ from app.models.schemas import (
 )
 from app.services.engine_v2 import CalculationError, EPHEM_AVAILABLE, SajuManager
 from app.services.saju_engine import saju_engine
+from app.services.saju_analyzer import get_saju_summary
 from app.services.cache import cache_service
 
 logger = logging.getLogger(__name__)
@@ -129,6 +131,34 @@ async def calculate_saju(
             "boundary_warning": boundary_warning,
             "calculation_method": result.quality.calculation_method
         }
+        
+        # 🔥🔥🔥 P0: saju_summary (팩트 앵커) 생성 및 추가
+        try:
+            saju_pillars = {
+                "year_pillar": result.saju.year_pillar.ganji,
+                "month_pillar": result.saju.month_pillar.ganji,
+                "day_pillar": result.saju.day_pillar.ganji,
+                "hour_pillar": result.saju.hour_pillar.ganji if result.saju.hour_pillar else "",
+            }
+            summary = get_saju_summary(saju_pillars)
+            
+            # 월지 십성 추출 (position으로 찾기)
+            month_branch_ten_god = None
+            for tg_info in summary.get("ten_gods_list", []):
+                if tg_info.get("position") == "월지":
+                    month_branch_ten_god = tg_info.get("ten_god")
+                    break
+            
+            response_data["saju_summary"] = summary
+            response_data["month_branch_ten_god"] = month_branch_ten_god
+            response_data["gyeokguk"] = summary.get("primary_structure")
+            response_data["elements_present"] = summary.get("elements_present")
+            response_data["ten_gods_present"] = summary.get("ten_gods_present")
+            
+            logger.info(f"[Calculate] 팩트앵커 생성: day_master={summary.get('day_master')} | 월지십성={month_branch_ten_god} | 격국={summary.get('primary_structure')}")
+        except Exception as e:
+            logger.warning(f"[Calculate] saju_summary 생성 실패: {e}")
+            # 실패해도 기본 응답은 반환
         
         logger.info(f"Saju calculated: {year}-{month}-{day} | Source: {result.quality.calculation_method}")
         

@@ -44,6 +44,82 @@ def get_supabase():
         return None
 
 
+# 🔥🔥🔥 P0: saju_summary 백엔드 방어 함수
+def _ensure_saju_summary(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    saju_summary가 없으면 백엔드에서 계산해서 채워넣기
+    - 프론트가 구버전이어도 깨지지 않게 방어
+    """
+    try:
+        saju_result = input_data.get("saju_result") or {}
+        
+        # 이미 saju_summary가 있으면 그대로 반환
+        if saju_result.get("saju_summary"):
+            logger.info("[Reports] saju_summary 이미 존재")
+            return input_data
+        
+        # saju_result 내부 또는 top-level에서 pillar 추출
+        year_pillar = (
+            saju_result.get("year_pillar")
+            or input_data.get("year_pillar")
+            or _extract_ganji(saju_result.get("saju", {}).get("year_pillar"))
+            or ""
+        )
+        month_pillar = (
+            saju_result.get("month_pillar")
+            or input_data.get("month_pillar")
+            or _extract_ganji(saju_result.get("saju", {}).get("month_pillar"))
+            or ""
+        )
+        day_pillar = (
+            saju_result.get("day_pillar")
+            or input_data.get("day_pillar")
+            or _extract_ganji(saju_result.get("saju", {}).get("day_pillar"))
+            or ""
+        )
+        hour_pillar = (
+            saju_result.get("hour_pillar")
+            or input_data.get("hour_pillar")
+            or _extract_ganji(saju_result.get("saju", {}).get("hour_pillar"))
+            or ""
+        )
+        
+        if not year_pillar or not month_pillar or not day_pillar:
+            logger.warning("[Reports] 사주 데이터 부족 - saju_summary 생성 스킵")
+            return input_data
+        
+        # saju_summary 생성
+        from app.services.saju_analyzer import get_saju_summary
+        saju_pillars = {
+            "year_pillar": year_pillar,
+            "month_pillar": month_pillar,
+            "day_pillar": day_pillar,
+            "hour_pillar": hour_pillar,
+        }
+        summary = get_saju_summary(saju_pillars)
+        
+        # saju_result에 추가
+        if not input_data.get("saju_result"):
+            input_data["saju_result"] = {}
+        input_data["saju_result"]["saju_summary"] = summary
+        
+        logger.info(f"[Reports] 🔥 saju_summary 백엔드 생성: day_master={summary.get('day_master')} | 격국={summary.get('primary_structure')}")
+        
+    except Exception as e:
+        logger.error(f"[Reports] saju_summary 생성 실패: {e}")
+    
+    return input_data
+
+
+def _extract_ganji(pillar_data) -> str:
+    """pillar가 dict면 ganji 추출, 아니면 그대로 반환"""
+    if not pillar_data:
+        return ""
+    if isinstance(pillar_data, dict):
+        return pillar_data.get("ganji", "") or pillar_data.get("value", "") or ""
+    return str(pillar_data) if pillar_data else ""
+
+
 # 🔥 섹션 순서 (order)
 SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"]
 
@@ -310,6 +386,9 @@ async def start_report(
         "gender": payload.gender,
         "birth_info": payload.birth_info,
     }
+    
+    # 🔥🔥🔥 P0: saju_summary 백엔드 방어 (프론트가 구버전이어도 깨지지 않게)
+    input_data = _ensure_saju_summary(input_data)
     
     supabase = get_supabase()
     
