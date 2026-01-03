@@ -386,11 +386,12 @@ class ReportWorker:
     ) -> None:
         selected_cards = self._select_rulecards_for_section(all_cards=all_cards, section_id=section_id)
         
-        # Build truth anchor for this section
+        # 🔥 Build truth anchor for this section (survey_data 포함)
         truth_anchor = build_truth_anchor(
             saju_data=saju_data,
             target_year=target_year,
             section_id=section_id,
+            survey_data=survey_data,  # 🔥 비즈니스 병목/투입시간 포함
         )
 
         result = await premium_report_builder.generate_single_section(
@@ -403,7 +404,7 @@ class ReportWorker:
             truth_anchor=truth_anchor,
             job_id=job_id,
             persona_id=persona_id,
-            user_name=user_name,  # 🔥 호칭 처리 전달
+            user_name=user_name,
         )
 
         # 🔥 P0 FIX: save_section도 async
