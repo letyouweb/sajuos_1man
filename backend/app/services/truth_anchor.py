@@ -7,18 +7,18 @@ Prevents LLM hallucinations by explicitly declaring allowed/forbidden stems/bran
 from __future__ import annotations
 
 import logging
-import re
+import os
 from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
-# 천간/지지 전체 글자셋
-_ALL_STEMS_BRANCHES: Set[str] = set(list("갑을병정무기경신임계자축인묘진사오미신유술해"))
+# 천간/지지 전체 글자셋 (참조용)
+_ALL_STEMS = set(list("갑을병정무기경신임계"))
+_ALL_BRANCHES = set(list("자축인묘진사오미신유술해"))
+_ALL_STEMS_BRANCHES = _ALL_STEMS | _ALL_BRANCHES
 
-# 🔥 P0 FIX: 오직 확실한 오타/환각 토큰만 차단 (과도한 필터링 방지)
-_STATIC_FORBIDDEN_TOKENS = {
-    "걸록격", "걸록",  # 건록격 오타
-}
+# 🔥 P0: 오타 토큰 (필터 활성화 시에만 사용)
+_STATIC_FORBIDDEN_TOKENS = {"걸록격", "걸록"}
 
 
 def _extract_allowed_chars(saju_data: Dict[str, Any]) -> Set[str]:
@@ -35,18 +35,22 @@ def _extract_allowed_chars(saju_data: Dict[str, Any]) -> Set[str]:
 
 def forbidden_words_for_rulecards(saju_data: Dict[str, Any]) -> List[str]:
     """
-    🔥 P0 FIX: RuleCard 물리적 차단용 금지어 - 매우 보수적으로!
+    🔥 P0 FIX: RuleCard 물리적 차단용 금지어 - ENV로 토글
     
-    - 오직 확실한 오타 토큰만 차단 (걸록격 등)
-    - 천간/지지 기반 동적 필터링은 제거 (모든 카드가 차단되는 문제 방지)
-    - LLM 프롬프트의 Truth Anchor가 환각을 방지함
+    ENV: RULECARD_PHYSICAL_FILTER
+    - "0" 또는 미설정 (기본값): 빈 리스트 반환 (필터 OFF)
+    - "1": 오타 토큰만 반환 (걸록, 걸록격)
     
-    Note: 과거에는 원국에 없는 "을목", "자수" 등을 차단했으나,
-          이로 인해 거의 모든 룰카드가 삭제되는 문제가 발생.
-          이제는 Truth Anchor 프롬프트에서 LLM에게 제약을 걸고,
-          물리적 차단은 최소화함.
+    운영 환경에서는 기본 OFF로 두고, 필요 시에만 활성화.
+    LLM 환각 방지는 Truth Anchor 프롬프트에서 처리함.
     """
-    # 🔥 오직 정적 오타 토큰만 반환
+    # ENV 토글: 기본 OFF
+    filter_enabled = os.getenv("RULECARD_PHYSICAL_FILTER", "0") == "1"
+    
+    if not filter_enabled:
+        return []  # 필터 비활성화
+    
+    # 필터 활성화 시: 오타 토큰만 반환
     return sorted(_STATIC_FORBIDDEN_TOKENS)
 
 
@@ -54,29 +58,32 @@ def build_truth_anchor(
     saju_data: Dict[str, Any],
     target_year: Optional[int] = None,
     section_id: Optional[str] = None,
-    **kwargs,  # 호환성을 위해 추가 인자 무시
+    **kwargs,
 ) -> str:
-    """Dynamic truth anchor injected into prompts.
-
-    - Only allow stems/branches that appear in the chart
-    - Forbid explicitly mentioning absent stems/branches
-    - Forbid inventing ten-gods/elements/structures not present in saju_summary
-
+    """
+    Dynamic truth anchor injected into prompts.
+    
+    🔥 P0 FIX: "금지 글자" 규칙 제거
+    → "원국 4주에 제공된 간지 외 추가 생성 금지"로 변경
+    
     Parameters:
         saju_data: 사주 데이터 dict (year_pillar, month_pillar 등 포함)
         target_year: 목표 연도 (예: 2026)
         section_id: 섹션 ID (optional)
-        **kwargs: 호환성을 위한 추가 인자 (무시됨)
     """
     saju_data = saju_data or {}
 
+    # 원국 4주 추출
+    year_pillar = saju_data.get("year_pillar") or "(미제공)"
+    month_pillar = saju_data.get("month_pillar") or "(미제공)"
+    day_pillar = saju_data.get("day_pillar") or "(미제공)"
+    hour_pillar = saju_data.get("hour_pillar") or "(미제공)"
+    
+    # 허용된 글자 (참조용)
     allowed = sorted(_extract_allowed_chars(saju_data))
-    allowed_set = set(allowed)
-    forbidden = sorted([ch for ch in _ALL_STEMS_BRANCHES if ch not in allowed_set])
+    allowed_preview = ", ".join(allowed) if allowed else "(추출 불가)"
 
-    allowed_preview = "".join(allowed) if allowed else "(unknown)"
-    forbidden_preview = "".join(forbidden[:14]) + ("…" if len(forbidden) > 14 else "")
-
+    # saju_summary에서 데이터 추출
     summary = saju_data.get("saju_summary") or {}
     if not isinstance(summary, dict):
         summary = {}
@@ -88,7 +95,12 @@ def build_truth_anchor(
     allowed_structures = summary.get("allowed_structure_names") or []
     primary_structure = summary.get("primary_structure") or saju_data.get("primary_structure") or ""
 
-    month_branch_ten_god = saju_data.get("month_branch_ten_god") or saju_data.get("month_ten_god") or saju_data.get("month_tengod") or ""
+    month_branch_ten_god = (
+        saju_data.get("month_branch_ten_god") or 
+        saju_data.get("month_ten_god") or 
+        saju_data.get("month_tengod") or 
+        ""
+    )
 
     # section/year context
     section_str = f"섹션: {section_id} / " if section_id else ""
@@ -97,18 +109,26 @@ def build_truth_anchor(
     return f"""## 🚨 ZERO TOLERANCE RULES (절대 준수)
 - {section_str}{year_str}
 
-1) **허용 글자만 언급**: 이 원국에서 언급 가능한 천간/지지 = [{allowed_preview}] 뿐이다.
-2) **금지 글자 언급 금지**: [{forbidden_preview}] 및 허용 밖 글자는 절대 언급하지 마라.
-3) **상상 금지**: 지장간/숨은 글자/추론으로 '있다'고 단정 금지.
-4) **오타 금지**: '걸록격' 사용 금지. (건록격으로 표기)
-5) **월지 십성 고정**: 엔진 제공 월지 십성 = `{month_branch_ten_god or '(미제공)'}` (미제공이면 단정 금지)
-6) **데이터 정합성**
-   - '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(none)'}
-   - 실제로 존재하는 오행: {', '.join(elements_present) if elements_present else '(unknown)'}
-   - 허용된 격국: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
-   - 최우선 격국: {primary_structure or '(unknown)'}
+### 원국 4주 (Ground Truth)
+- 년주: {year_pillar}
+- 월주: {month_pillar}
+- 일주: {day_pillar}
+- 시주: {hour_pillar}
+- (허용 글자: {allowed_preview})
 
-[중요] 위 허용 글자 외의 천간/지지를 원국에 있는 것처럼 서술하면 실패 처리됨.
+### 절대 금지 사항
+1) **원국 외 간지 생성 금지**: 위 4주에 없는 천간/지지를 원국에 "있다"고 단정하지 마라.
+2) **지장간/숨은 글자 추론 금지**: 지장간이나 숨은 오행으로 "있다"고 확대 해석 금지.
+3) **오타 금지**: '걸록격' → '건록격'으로 올바르게 표기.
+4) **월지 십성 고정**: 엔진 제공 월지 십성 = `{month_branch_ten_god or '(미제공)'}` (미제공이면 단정 금지)
+
+### 데이터 정합성
+- '있다'고 단정 가능한 십성: {', '.join(ten_present) if ten_present else '(엔진 미제공)'}
+- 실제 존재하는 오행: {', '.join(elements_present) if elements_present else '(엔진 미제공)'}
+- 허용된 격국: {', '.join(allowed_structures[:10]) if allowed_structures else '(엔진 미제공)'}
+- 최우선 격국: {primary_structure or '(엔진 미제공)'}
+
+[중요] 위 원국 4주에 없는 간지를 원국에 있는 것처럼 서술하면 실패 처리됨.
 """.strip()
 
 

@@ -228,15 +228,15 @@ class ReportWorker:
         return []
 
     def _filter_forbidden_rulecards(self, all_cards: List[Dict[str, Any]], saju_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """P0: 환각 유발 RuleCard 물리적 차단 (오타 토큰만)"""
+        """P0: 환각 유발 RuleCard 물리적 차단 (ENV로 토글, 기본 OFF)"""
         forbidden = set(forbidden_words_for_rulecards(saju_data))
         
-        # 🔥 P0: 금지어 목록 로그 (디버깅용)
-        logger.info(f"[Worker] 금지어 목록: {sorted(forbidden)}")
-        
+        # 🔥 P0: 필터 비활성화 시 즉시 반환 (로그 없음)
         if not forbidden:
-            logger.info(f"[Worker] 금지어 없음 - 룰카드 필터 스킵 (총 {len(all_cards)}개)")
             return all_cards
+        
+        # 필터 활성화 시에만 로그
+        logger.info(f"[Worker] 🔧 룰카드 필터 활성화 (금지어: {sorted(forbidden)})")
 
         filtered: List[Dict[str, Any]] = []
         removed_examples: List[str] = []  # 제거된 카드 예시
@@ -261,15 +261,14 @@ class ReportWorker:
 
         removed = len(all_cards) - len(filtered)
         
-        # 🔥 P0: 상세 로그 (before/after/removed_count/examples)
+        # 상세 로그
         logger.info(f"[Worker] 룰카드 필터: {len(all_cards)} -> {len(filtered)} ({removed}개 제거)")
         if removed_examples:
-            logger.info(f"[Worker] 제거된 카드 예시 (최대 10개): {removed_examples}")
+            logger.info(f"[Worker] 제거된 카드 예시: {removed_examples}")
         
         # 🔥 경고: 전체 삭제 방지
         if len(filtered) == 0 and len(all_cards) > 0:
             logger.error(f"[Worker] ⚠️ 모든 룰카드가 삭제됨! 필터 로직 점검 필요!")
-            # 전체 삭제 방지: 원본 반환
             return all_cards
         
         return filtered
