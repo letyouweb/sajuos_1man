@@ -7,39 +7,44 @@ import ReactMarkdown from "react-markdown";
 // 🔥 P0: API URL 단일화
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.sajuos.com";
 
-// 🔥🔥🔥 P0: 신규 섹션 ID로 업데이트
-const SECTION_ORDER = ["business_climate", "cashflow", "market_product", "team_partnership", "owner_risk", "sprint_12m", "action_90d"];
+// 🔥🔥🔥 P0 FIX: 백엔드 섹션 ID와 일치시킴
+const SECTION_ORDER = ["exec", "money", "business", "team", "health", "calendar", "sprint"];
 
-// 🔥🔥🔥 P0: 신규 섹션 타이틀
+// 🔥🔥🔥 P0 FIX: 백엔드 ID 기준 타이틀
 const SECTION_TITLES: Record<string, string> = {
-  business_climate: "🌦️ 비즈니스 전략 기상도",
-  cashflow: "💰 자본 유동성 및 현금흐름 최적화",
-  market_product: "📍 시장 포지셔닝 및 상품 확장 전략",
-  team_partnership: "🤝 조직 확장 및 파트너십 가이드",
-  owner_risk: "🧯 오너 리스크 관리 및 번아웃 방어",
-  sprint_12m: "🗓️ 12개월 비즈니스 스프린트 캘린더",
-  action_90d: "🚀 향후 90일 매출 극대화 액션플랜",
+  exec: "🚀 90일 실행 플랜",
+  money: "💰 현금흐름 최적화",
+  business: "🌦️ 비즈니스 전략",
+  team: "🤝 파트너십/팀",
+  health: "🧯 오너 리스크",
+  calendar: "🗓️ 12개월 캘린더",
+  sprint: "📍 스프린트 전략",
 };
 
 const SECTION_ICONS: Record<string, string> = {
-  business_climate: "🌦️",
-  cashflow: "💰",
-  market_product: "📍",
-  team_partnership: "🤝",
-  owner_risk: "🧯",
-  sprint_12m: "🗓️",
-  action_90d: "🚀",
+  exec: "🚀",
+  money: "💰",
+  business: "🌦️",
+  team: "🤝",
+  health: "🧯",
+  calendar: "🗓️",
+  sprint: "📍",
 };
 
-// 🔥🔥🔥 P0: 탭 버튼용 짧은 이름
+// 🔥🔥🔥 P0 FIX: 탭 버튼용 짧은 이름
 const TAB_NAMES: Record<string, string> = {
-  business_climate: "전략기상도",
-  cashflow: "현금흐름",
-  market_product: "시장전략",
-  team_partnership: "파트너십",
-  owner_risk: "리스크",
-  sprint_12m: "12개월",
-  action_90d: "90일플랜",
+  exec: "90일플랜",
+  money: "현금흐름",
+  business: "전략",
+  team: "파트너십",
+  health: "리스크",
+  calendar: "12개월",
+  sprint: "스프린트",
+};
+
+// 🔥 P0 FIX: 안전한 section_id 추출 (sectionId, section_id, id 모두 지원)
+const getSectionId = (s: any): string => {
+  return s?.section_id ?? s?.sectionId ?? s?.id ?? "";
 };
 
 // 🔥 P0: 안전한 includes 헬퍼
@@ -106,7 +111,8 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
   const [error, setError] = useState<string>("");
   const [status, setStatus] = useState<"loading" | "generating" | "completed" | "error">("loading");
   const [progress, setProgress] = useState(0);
-  const [activeSection, setActiveSection] = useState<string>("business_climate");
+  // 🔥 P0 FIX: 백엔드 섹션 ID와 일치 (exec)
+  const [activeSection, setActiveSection] = useState<string>("exec");
   
   // 🔥 P0: 전체보기 모드
   const [viewMode, setViewMode] = useState<"tabs" | "full">("tabs");
@@ -331,7 +337,8 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
             {sections.length > 0 && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {SECTION_ORDER.map((sid) => {
-                  const section = sections.find((s: any) => (s?.section_id || s?.id) === sid);
+                  // 🔥 P0 FIX: 안전한 section_id 추출
+                  const section = sections.find((s: any) => getSectionId(s) === sid);
                   const sectionStatus = section?.status || "pending";
                   return (
                     <div
@@ -377,6 +384,16 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     const pillars = saju?.saju || {};
     
     const safeSections = Array.isArray(sections) ? sections : [];
+    
+    // 🔥🔥🔥 P0 FIX: 탭에 표시할 섹션 수 계산 (탭 0개 방지)
+    const matchedTabCount = SECTION_ORDER.filter(sid => 
+      safeSections.some(s => getSectionId(s) === sid)
+    ).length;
+    
+    // 🔥 P0: 탭이 0개면 자동으로 전체보기 모드로 전환
+    const effectiveViewMode = (viewMode === "tabs" && matchedTabCount === 0 && safeSections.length > 0) 
+      ? "full" 
+      : viewMode;
     
     // 🔥🔥🔥 P0 FIX: 정확도 계산 (복합 조건)
     const accuracy = calculateAccuracy(data);
@@ -435,12 +452,12 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
               <button
                 onClick={toggleViewMode}
                 className={`px-6 py-3 rounded-xl font-medium transition-all ${
-                  viewMode === "full"
+                  effectiveViewMode === "full"
                     ? "bg-purple-600 text-white shadow-lg"
                     : "bg-white text-purple-600 border-2 border-purple-600 hover:bg-purple-50"
                 }`}
               >
-                {viewMode === "full" ? "📑 탭 보기" : "📄 전체보기"}
+                {effectiveViewMode === "full" ? "📑 탭 보기" : "📄 전체보기"}
               </button>
               <button
                 onClick={handlePrintPDF}
@@ -514,12 +531,13 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
             </div>
 
             {/* 🔥🔥🔥 P0: 탭 모드 vs 전체보기 모드 */}
-            {viewMode === "tabs" && safeSections.length > 0 && (
+            {effectiveViewMode === "tabs" && safeSections.length > 0 && (
               <>
                 {/* 탭 네비게이션 */}
                 <div className="flex flex-wrap gap-2 mb-6 bg-white rounded-xl p-2 shadow no-print">
                   {SECTION_ORDER.map((sid) => {
-                    const section = safeSections.find((s: any) => (s?.section_id || s?.id) === sid);
+                    // 🔥 P0 FIX: 안전한 section_id 추출
+                    const section = safeSections.find((s: any) => getSectionId(s) === sid);
                     if (!section) return null;
                     
                     return (
@@ -541,11 +559,12 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                 {/* 활성 섹션 콘텐츠 */}
                 <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
                   {safeSections.map((section: any) => {
-                    const sid = section?.section_id || section?.id;
+                    // 🔥 P0 FIX: 안전한 section_id 추출
+                    const sid = getSectionId(section);
                     if (sid !== activeSection) return null;
                     
-                    const markdown = section?.markdown || section?.body_markdown || section?.content || "";
-                    const title = section?.title || SECTION_TITLES[sid] || sid;
+                    const markdown = section?.markdown || section?.body_markdown || section?.bodyMarkdown || section?.content || "";
+                    const title = section?.title || section?.sectionTitle || SECTION_TITLES[sid] || sid;
                     
                     return (
                       <div key={sid} className="p-6 md:p-8">
@@ -576,7 +595,7 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
             )}
 
             {/* 🔥🔥🔥 P0: 전체보기 모드 - full_markdown 한 페이지 렌더링 */}
-            {viewMode === "full" && (
+            {effectiveViewMode === "full" && (
               <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8">
                 {full_markdown ? (
                   <div className="prose prose-purple max-w-none prose-headings:text-purple-800 prose-h1:text-3xl prose-h2:text-2xl prose-h2:border-b prose-h2:pb-2 prose-h2:mb-4">
@@ -586,9 +605,10 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
                   // full_markdown이 없으면 섹션별 markdown을 합쳐서 렌더
                   <div className="prose prose-purple max-w-none">
                     {safeSections.map((section: any) => {
-                      const sid = section?.section_id || section?.id;
-                      const markdown = section?.markdown || section?.body_markdown || "";
-                      const title = section?.title || SECTION_TITLES[sid] || sid;
+                      // 🔥 P0 FIX: 안전한 section_id 추출
+                      const sid = getSectionId(section);
+                      const markdown = section?.markdown || section?.body_markdown || section?.bodyMarkdown || "";
+                      const title = section?.title || section?.sectionTitle || SECTION_TITLES[sid] || sid;
                       
                       return (
                         <div key={sid} className="mb-8 pb-8 border-b last:border-b-0">

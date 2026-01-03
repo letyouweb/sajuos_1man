@@ -191,19 +191,27 @@ def normalize_section(section: Dict) -> Dict:
     section_id = section.get("section_id") or section.get("id", "")
     raw_json = section.get("raw_json") or {}
     markdown = section.get("markdown") or extract_markdown_from_section(section)
+    title = section.get("title") or get_section_title(section_id)
+    order = section.get("order") or get_section_order(section_id)
     
     return {
+        # snake_case (기본)
         "section_id": section_id,
         "id": section_id,  # 호환성
-        "title": section.get("title") or get_section_title(section_id),
+        "title": title,
         "status": section.get("status", "completed"),
-        "order": section.get("order") or get_section_order(section_id),
+        "order": order,
         # 🔥 핵심: markdown 필드
         "markdown": markdown,
         "content": markdown,  # 호환성
         "body_markdown": markdown,  # 호환성
         # raw_json (상세 데이터)
         "raw_json": raw_json,
+        # 🔥 P0 FIX: camelCase alias (프론트 호환)
+        "sectionId": section_id,
+        "sectionTitle": title,
+        "sectionOrder": order,
+        "bodyMarkdown": markdown,
         # 주요 필드 직접 노출
         "confidence": raw_json.get("confidence", "MEDIUM"),
         "diagnosis": raw_json.get("diagnosis"),
@@ -448,6 +456,9 @@ async def view_report(job_id: str, token: str = Query(..., description="Access t
         "section_count": len(sections_normalized),
         "ready": is_ready,  # 🔥 P0: 콘텐츠 준비 완료 여부
         "completed_section_count": completed_sections,  # 🔥 P0: 실제 완료된 섹션 수
+        # 🔥 P0 FIX: section_specs 포함 (탭 0개 방지)
+        "section_specs": SECTION_SPECS,
+        "sectionSpecs": SECTION_SPECS,  # camelCase alias
     }
 
 
