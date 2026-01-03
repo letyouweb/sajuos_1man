@@ -185,13 +185,26 @@ class SupabaseService:
         return True, result.data[0]
     
     async def update_progress(self, job_id: str, progress: int, status: str = "running"):
-        """진행률 업데이트"""
+        """진행률 업데이트
+        
+        🔥 P0 FIX: DB constraint (report_jobs_status_check)가 허용하는 status만 사용
+        허용값: queued, running, completed, failed
+        """
+        # 🔥 status 값 정규화 (DB constraint 위반 방지)
+        ALLOWED_STATUS = {"queued", "running", "completed", "failed"}
+        if status not in ALLOWED_STATUS:
+            logger.warning(f"[Supabase] status '{status}' -> 'running'으로 변환 (DB constraint)")
+            status = "running"
+        
         client = self._get_client()
-        client.table("report_jobs").update({
-            "status": status,
-            "progress": progress,
-            "current_step": status
-        }).eq("id", job_id).execute()
+        try:
+            client.table("report_jobs").update({
+                "status": status,
+                "progress": progress,
+                "current_step": status
+            }).eq("id", job_id).execute()
+        except Exception as e:
+            logger.error(f"[Supabase] update_progress 실패: {e}")
     
     async def complete_job(self, job_id: str, result_json: Dict = None, markdown: str = "", saju_json: Dict = None):
         """

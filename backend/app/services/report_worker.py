@@ -122,8 +122,8 @@ class ReportWorker:
         all_cards = self._get_all_cards(rulestore)
         all_cards = self._filter_forbidden_rulecards(all_cards=all_cards, saju_data=saju_data)
 
-        # 진행률 업데이트
-        await self.supabase.update_progress(job_id, 10, "generating")
+        # 진행률 업데이트 (🔥 status는 running만 사용 - DB constraint)
+        await self.supabase.update_progress(job_id, 10, "running")
 
         # Generate each section
         completed_sections = []
@@ -141,7 +141,7 @@ class ReportWorker:
                 completed_sections.append(section_id)
                 # 진행률 업데이트 (10~90%)
                 progress = 10 + int(80 * (i + 1) / len(section_ids))
-                await self.supabase.update_progress(job_id, progress, "generating")
+                await self.supabase.update_progress(job_id, progress, "running")
             except Exception as e:
                 logger.error(f"[Worker] 섹션 생성 실패: {section_id} | {e}")
                 # Continue with other sections

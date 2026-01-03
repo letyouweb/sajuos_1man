@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # 천간/지지 전체 글자셋
 _ALL_STEMS_BRANCHES: Set[str] = set(list("갑을병정무기경신임계자축인묘진사오미신유술해"))
 
-# 흔한 오타/환각 유발 토큰(고정)
+# 🔥 P0 FIX: 오직 확실한 오타/환각 토큰만 차단 (과도한 필터링 방지)
 _STATIC_FORBIDDEN_TOKENS = {
     "걸록격", "걸록",  # 건록격 오타
 }
@@ -34,38 +34,20 @@ def _extract_allowed_chars(saju_data: Dict[str, Any]) -> Set[str]:
 
 
 def forbidden_words_for_rulecards(saju_data: Dict[str, Any]) -> List[str]:
-    """Return a conservative forbidden-token list for physical rulecard blocking.
-
-    - Always blocks known typos like 걸록격
-    - Additionally blocks common hallucinated stem/branch words that are NOT present in the chart
-      (e.g., "자수", "을목")
-
-    Note: This is intentionally conservative; it targets only obvious tokens.
     """
-    saju_data = saju_data or {}
-    allowed = _extract_allowed_chars(saju_data)
-
-    # Map a few frequent patterns into concrete forbidden tokens if those stems/branches are absent.
-    stem_word = {
-        "갑": "갑목", "을": "을목", "병": "병화", "정": "정화", "무": "무토",
-        "기": "기토", "경": "경금", "신": "신금", "임": "임수", "계": "계수",
-    }
-    branch_word = {
-        "자": "자수", "축": "축토", "인": "인목", "묘": "묘목", "진": "진토",
-        "사": "사화", "오": "오화", "미": "미토", "신": "신금", "유": "유금",
-        "술": "술토", "해": "해수",
-    }
-
-    candidates = []
-    for ch, w in {**stem_word, **branch_word}.items():
-        if ch not in allowed:
-            candidates.append(w)
-
-    # reduce to a small set to avoid overblocking
-    forbidden = set(_STATIC_FORBIDDEN_TOKENS)
-    forbidden.update(candidates)
-
-    return sorted(forbidden)
+    🔥 P0 FIX: RuleCard 물리적 차단용 금지어 - 매우 보수적으로!
+    
+    - 오직 확실한 오타 토큰만 차단 (걸록격 등)
+    - 천간/지지 기반 동적 필터링은 제거 (모든 카드가 차단되는 문제 방지)
+    - LLM 프롬프트의 Truth Anchor가 환각을 방지함
+    
+    Note: 과거에는 원국에 없는 "을목", "자수" 등을 차단했으나,
+          이로 인해 거의 모든 룰카드가 삭제되는 문제가 발생.
+          이제는 Truth Anchor 프롬프트에서 LLM에게 제약을 걸고,
+          물리적 차단은 최소화함.
+    """
+    # 🔥 오직 정적 오타 토큰만 반환
+    return sorted(_STATIC_FORBIDDEN_TOKENS)
 
 
 def build_truth_anchor(
@@ -108,10 +90,6 @@ def build_truth_anchor(
 
     month_branch_ten_god = saju_data.get("month_branch_ten_god") or saju_data.get("month_ten_god") or saju_data.get("month_tengod") or ""
 
-    # Safety: show a couple of forbidden examples (word-form) to reduce hallucinations
-    forbidden_words = forbidden_words_for_rulecards(saju_data)
-    example_words = ", ".join(forbidden_words[:6]) if forbidden_words else "(none)"
-
     # section/year context
     section_str = f"섹션: {section_id} / " if section_id else ""
     year_str = f"목표 연도: {target_year}" if target_year else "목표 연도: (미지정)"
@@ -130,8 +108,7 @@ def build_truth_anchor(
    - 허용된 격국: {', '.join(allowed_structures[:12]) if allowed_structures else '(unknown)'}
    - 최우선 격국: {primary_structure or '(unknown)'}
 
-[룰카드 차단 예시 토큰]
-- 다음 같은 토큰은 (원국에 없으면) 사용 금지: {example_words}
+[중요] 위 허용 글자 외의 천간/지지를 원국에 있는 것처럼 서술하면 실패 처리됨.
 """.strip()
 
 
