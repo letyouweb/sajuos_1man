@@ -44,7 +44,8 @@ class EmailService:
         self,
         to_email: str,
         name: str,
-        access_token: str,
+        job_id: str,
+        token: str,
         target_year: int,
         pdf_url: Optional[str] = None
     ) -> bool:
@@ -53,7 +54,8 @@ class EmailService:
             logger.warning(f"[Email] 발송 스킵 (미설정): {to_email}")
             return False
         
-        report_url = f"{self._frontend_url}/report/{access_token}"
+        # 🔥 P0 FIX: 올바른 URL 형식 (job_id + token query param)
+        report_url = f"{self._frontend_url}/report/{job_id}?token={token}"
         
         html_content = f"""
 <!DOCTYPE html>

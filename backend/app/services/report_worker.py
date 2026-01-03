@@ -20,8 +20,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.services.supabase_service import supabase_service
 from app.services.report_builder import premium_report_builder
 from app.services.truth_anchor import build_truth_anchor, forbidden_words_for_rulecards
+from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
+
+# 🔥 P0: 이메일 서비스 싱글톤
+email_service = EmailService()
 
 
 def _ensure_dict(v: Any) -> Dict[str, Any]:
@@ -201,6 +205,48 @@ class ReportWorker:
             saju_json=saju_json_to_save,
         )
         logger.info(f"[Worker] ✅ Job 완료: {job_id} ({elapsed_ms}ms, {len(completed_sections)}/{len(section_ids)} 섹션)")
+        
+        # 🔥🔥🔥 P0 FIX: 이메일 발송 로직 추가
+        await self._send_completion_email(job=job, job_id=job_id, target_year=target_year)
+
+    async def _send_completion_email(self, job: Dict[str, Any], job_id: str, target_year: int) -> None:
+        """리포트 완료 이메일 발송"""
+        try:
+            input_json = _ensure_dict(job.get("input_json") or {})
+            
+            # 이메일 주소
+            to_email = job.get("email") or input_json.get("email") or ""
+            if not to_email:
+                logger.warning(f"[Worker] 이메일 주소 없음: {job_id}")
+                return
+            
+            # 사용자 이름
+            name = input_json.get("name") or "고객"
+            
+            # 🔥 P0 FIX: job_id와 token 분리
+            token = job.get("public_token") or job.get("token") or ""
+            if not token:
+                logger.warning(f"[Worker] 토큰 없음: {job_id}")
+                return
+            
+            # 이메일 발송
+            success = await email_service.send_report_complete(
+                to_email=to_email,
+                name=name,
+                job_id=job_id,
+                token=token,
+                target_year=target_year,
+                pdf_url=None  # PDF는 별도 생성
+            )
+            
+            if success:
+                logger.info(f"[Worker] 📧 이메일 발송 성공: {to_email}")
+            else:
+                logger.warning(f"[Worker] 📧 이메일 발송 실패/스킵: {to_email}")
+                
+        except Exception as e:
+            logger.error(f"[Worker] 📧 이메일 발송 에러: {e}")
+            # 이메일 발송 실패해도 job은 완료 처리
 
     def _prepare_saju_data(self, saju_result: Dict[str, Any], input_json: Dict[str, Any] = None) -> Dict[str, Any]:
         """사주 데이터 준비 - 다양한 경로에서 pillar 추출"""
