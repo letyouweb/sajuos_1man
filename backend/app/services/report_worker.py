@@ -149,6 +149,22 @@ class ReportWorker:
         if not target_year:
             target_year = time.localtime().tm_year
 
+        # 🔥🔥🔥 user_name 다중 폴백 (호칭 처리용)
+        user_name = (
+            input_json.get("name")
+            or input_json.get("user_name")
+            or survey_data.get("name")
+            or survey_data.get("user_name")
+            or survey_data.get("nickname")
+            or survey_data.get("이름")
+            or survey_data.get("이름 (닉네임)")
+            or ""
+        )
+        if user_name:
+            logger.info(f"[Worker] 👤 사용자 이름: {user_name}")
+        else:
+            logger.warning(f"[Worker] ⚠️ 사용자 이름 없음 - '귀하' 사용")
+
         # 🔥🔥🔥 페르소나 분류 (마스터 샘플 선택용)
         persona_id = classify_persona(saju_data)
         logger.info(f"[Worker] 🎭 페르소나 분류: {persona_id}")
@@ -176,7 +192,8 @@ class ReportWorker:
                     target_year=target_year,
                     user_question=user_question,
                     all_cards=all_cards,
-                    persona_id=persona_id,  # 🔥 페르소나 전달
+                    persona_id=persona_id,
+                    user_name=user_name,  # 🔥 호칭 처리용
                 )
                 completed_sections.append(section_id)
                 # 진행률 업데이트 (10~90%)
@@ -364,7 +381,8 @@ class ReportWorker:
         target_year: int,
         user_question: str,
         all_cards: List[Dict[str, Any]],
-        persona_id: str = "standard",  # 🔥 페르소나 파라미터 추가
+        persona_id: str = "standard",
+        user_name: str = "",  # 🔥 호칭 처리용
     ) -> None:
         selected_cards = self._select_rulecards_for_section(all_cards=all_cards, section_id=section_id)
         
@@ -384,12 +402,13 @@ class ReportWorker:
             user_question=user_question,
             truth_anchor=truth_anchor,
             job_id=job_id,
-            persona_id=persona_id,  # 🔥 페르소나 전달
+            persona_id=persona_id,
+            user_name=user_name,  # 🔥 호칭 처리 전달
         )
 
         # 🔥 P0 FIX: save_section도 async
         await self.supabase.save_section(job_id=job_id, section_id=section_id, content_json=result)
-        logger.info(f"[Worker] 섹션 저장 완료: {section_id} ({result.get('char_count', 0)}자) | persona={persona_id}")
+        logger.info(f"[Worker] 섹션 저장 완료: {section_id} ({result.get('char_count', 0)}자) | persona={persona_id} | user={user_name or '귀하'}")
 
     def _select_rulecards_for_section(self, all_cards: List[Dict[str, Any]], section_id: str, k: int = 24) -> List[Dict[str, Any]]:
         if not all_cards:

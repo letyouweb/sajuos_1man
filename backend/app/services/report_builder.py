@@ -80,6 +80,98 @@ def _detect_rejection(text: str) -> Tuple[bool, List[str]]:
     return len(found) > 0, found
 
 
+# -----------------------------
+# 🔥🔥🔥 호칭 처리 함수 (귀하 → {name}님)
+# -----------------------------
+
+def apply_name_style(body: str, user_name: str) -> str:
+    """
+    호칭 치환: 귀하 → {name}님
+    
+    - user_name이 있으면: 귀하 → {name}님으로 치환
+    - user_name이 없으면: 귀하 그대로 유지
+    """
+    if not user_name or not body:
+        return body
+    
+    # 조사별 치환 (순서 중요: 긴 패턴 먼저)
+    replacements = [
+        ("귀하의", f"{user_name}님의"),
+        ("귀하께서", f"{user_name}님께서"),
+        ("귀하에게", f"{user_name}님에게"),
+        ("귀하가", f"{user_name}님이"),
+        ("귀하는", f"{user_name}님은"),
+        ("귀하를", f"{user_name}님을"),
+        ("귀하", f"{user_name}님"),
+    ]
+    
+    result = body
+    for old, new in replacements:
+        result = result.replace(old, new)
+    
+    return result
+
+
+def ensure_addressee(body: str, user_name: str) -> str:
+    """
+    호칭 강제 삽입 안전장치
+    
+    - body에 user_name이나 '님'이 전혀 없으면 첫 문장 앞에 호칭 추가
+    - user_name이 없으면 그대로 반환 (귀하 유지)
+    """
+    if not body:
+        return body
+    
+    # user_name이 없으면 귀하가 있는지 확인하고 없으면 추가
+    if not user_name:
+        if "귀하" not in body and "님" not in body:
+            # 첫 문단 앞에 귀하 추가
+            return f"귀하, {body}"
+        return body
+    
+    # user_name이 있는 경우
+    if user_name in body or "님" in body:
+        return body
+    
+    # 호칭이 전혀 없으면 첫 문단 앞에 주입
+    return f"{user_name}님, {body}"
+
+
+def postprocess_body(body: str, user_name: str) -> str:
+    """
+    본문 후처리: 호칭 치환 + 강제 삽입
+    """
+    body = apply_name_style(body, user_name)
+    body = ensure_addressee(body, user_name)
+    return body
+
+
+# -----------------------------
+# 🔥 호칭 관련 프롬프트 규칙
+# -----------------------------
+
+def get_addressee_rule(user_name: str) -> str:
+    """
+    호칭 사용 규칙 (프롬프트용)
+    
+    - user_name이 있으면: {name}님 사용 강제
+    - user_name이 없으면: 귀하 사용 허용
+    """
+    if user_name:
+        return f"""## 🎯 호칭 규칙 (필수)
+- 반드시 "{user_name}님" 또는 "{user_name}님의" 형태로 호칭한다.
+- "귀하" 사용 금지.
+- 섹션 첫 문단에 반드시 "{user_name}님"을 1회 이상 포함한다.
+- 예: "{user_name}님의 원국은...", "{user_name}님께서는..."
+"""
+    else:
+        return """## 🎯 호칭 규칙
+- "귀하" 또는 "귀하의" 형태로 호칭한다.
+- 섹션 첫 문단에 반드시 호칭을 1회 이상 포함한다.
+- 예: "귀하의 원국은...", "귀하께서는..."
+"""
+
+
 def _generate_fallback_content(
     section_id: str,
     title: str,
@@ -277,8 +369,9 @@ def build_system_prompt(
     existing_contents: Optional[List[str]] = None,
     truth_anchor_override: Optional[str] = None,
     is_retry: bool = False,
-    master_template: str = "",  # 🔥 마스터 샘플 템플릿
-    persona_id: str = "standard",  # 🔥 페르소나
+    master_template: str = "",
+    persona_id: str = "standard",
+    user_name: str = "",  # 🔥 호칭 처리용
 ) -> str:
     spec = PREMIUM_SECTIONS.get(section_id) or SectionSpec(section_id, section_id, 800)
     title = spec.title
@@ -286,6 +379,9 @@ def build_system_prompt(
     
     # 🔥 마스터 템플릿이 없으면 기존 방식
     master_body = master_template or get_master_body_markdown(section_id)
+    
+    # 🔥🔥🔥 호칭 규칙 (user_name 유무에 따라 다름)
+    addressee_rule = get_addressee_rule(user_name)
 
     # dynamic truth anchor
     if truth_anchor_override:
@@ -328,6 +424,8 @@ def build_system_prompt(
     if master_body:
         return f"""{truth_anchor}
 
+{addressee_rule}
+
 ## 🔥🔥🔥 핵심 원칙: 템플릿 빈칸 채우기 (구조 유지)
 1) 아래 [마스터 템플릿]의 **구조와 헤더를 그대로 유지**한다.
 2) {{변수명}} 형태의 빈칸을 [팩트 앵커]와 [룰카드]의 정보로 채운다.
@@ -346,6 +444,7 @@ def build_system_prompt(
 - 목표: {goal}
 - 기간: {timeframe}
 - 페르소나: {persona_id} ({get_persona_description(persona_id)})
+- 사용자명: {user_name or "(미입력 - 귀하 사용)"}
 
 ## 엔진 확정 룰카드 (근거로만 사용)
 {cards_block}
@@ -369,6 +468,8 @@ def build_system_prompt(
     # 🔥 마스터 템플릿 없을 때 기존 방식
     return f"""{truth_anchor}
 
+{addressee_rule}
+
 {ROOT_CAUSE_RULE}
 
 {DATA_COMPLIANCE_RULE}
@@ -383,6 +484,7 @@ def build_system_prompt(
 - 고민/질문: {pain}
 - 목표: {goal}
 - 기간: {timeframe}
+- 사용자명: {user_name or "(미입력 - 귀하 사용)"}
 
 ## 엔진 확정 룰카드 (근거로만 사용)
 {cards_block}
@@ -448,7 +550,8 @@ class PremiumReportBuilder:
         existing_contents: Optional[List[str]] = None,
         job_id: Optional[str] = None,
         truth_anchor: Optional[str] = None,
-        persona_id: Optional[str] = None,  # 🔥 외부에서 전달 가능
+        persona_id: Optional[str] = None,
+        user_name: str = "",  # 🔥 호칭 처리용
     ) -> Dict[str, Any]:
         """
         섹션 생성 + 🔥 마스터 샘플 기반 + 거절 응답 감지 시 1회 자동 재시도
@@ -464,7 +567,7 @@ class PremiumReportBuilder:
         master_sample = await get_master_sample_from_db(section_id, persona_id)
         master_template = master_sample.get("body_markdown", "")
         
-        logger.info(f"[Builder] 섹션 생성 시작: {section_id} | persona={persona_id} | template={len(master_template)}자")
+        logger.info(f"[Builder] 섹션 생성 시작: {section_id} | persona={persona_id} | user={user_name or '귀하'} | template={len(master_template)}자")
         
         body = ""
         retried = False
@@ -485,8 +588,9 @@ class PremiumReportBuilder:
                 existing_contents=existing_contents,
                 truth_anchor_override=truth_anchor,
                 is_retry=is_retry,
-                master_template=master_template,  # 🔥 마스터 템플릿 전달
-                persona_id=persona_id,  # 🔥 페르소나 전달
+                master_template=master_template,
+                persona_id=persona_id,
+                user_name=user_name,  # 🔥 호칭 처리 전달
             )
             
             try:
@@ -516,6 +620,9 @@ class PremiumReportBuilder:
                     logger.info(f"[Builder] ✅ 재시도 성공 (section={section_id})")
                 break
 
+        # 🔥🔥🔥 호칭 후처리: 귀하 → {name}님 치환 + 강제 삽입
+        body = postprocess_body(body, user_name)
+
         used_ids = [c.get("id") for c in rulecards if c.get("id")]
 
         return {
@@ -528,14 +635,16 @@ class PremiumReportBuilder:
             "repaired": retried,
             "rejection_detected": rejection_detected,
             "fallback_used": rejection_detected and retried,
-            "persona_id": persona_id,  # 🔥 사용된 페르소나
-            "master_template_used": bool(master_template),  # 🔥 마스터 템플릿 사용 여부
+            "persona_id": persona_id,
+            "user_name": user_name or "귀하",  # 🔥 사용된 호칭
+            "master_template_used": bool(master_template),
             "match_summary": {
                 "selected_rulecards": len(rulecards),
                 "model": self.model,
                 "job_id": job_id,
                 "retried": retried,
                 "persona": persona_id,
+                "user_name": user_name or "귀하",
             },
             "used_rulecard_ids": used_ids[:50],
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
