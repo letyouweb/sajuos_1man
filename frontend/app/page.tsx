@@ -59,13 +59,16 @@ export default function Home() {
       const todayKst = getTodayKst();
       const questionWithDate = `${formData.question}\n\n(기준일: ${todayKst} KST)`;
       
+      // 🔥 P0 FIX: target_year 동적 계산 (현재 연도 + 1)
+      const targetYear = new Date().getFullYear() + 1;
+      
       const response = await startReportGeneration({
         email: formData.email,
         name: formData.name,
         saju_result: calcResult,
         question: questionWithDate,
         concern_type: formData.concernType,
-        target_year: 2025,
+        target_year: targetYear,
         survey_data: formData.surveyData,  // 🔥 7문항 설문 데이터 전달
       });
 

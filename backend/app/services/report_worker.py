@@ -29,16 +29,24 @@ def _ensure_dict(v: Any) -> Dict[str, Any]:
 
     Supabase (and sometimes frontend) may store JSON columns as strings.
     This helper makes the worker tolerant to that behavior.
+    
+    🔥 P0 FIX: 문자열이 '{'로 시작하지 않으면 JSON 파싱 시도 안 함
     """
     if isinstance(v, dict):
         return v
     if isinstance(v, str):
+        v_stripped = v.strip()
+        # 🔥 P0: JSON-like 문자열만 파싱 시도 (birth_text 같은 일반 문자열 보호)
+        if not v_stripped.startswith("{"):
+            if v_stripped:
+                logger.debug(f"[Worker] 비-JSON 문자열 (birth_text?): {v_stripped[:50]}...")
+            return {}
         try:
-            vv = json.loads(v)
+            vv = json.loads(v_stripped)
             return vv if isinstance(vv, dict) else {}
         except Exception:
-            if v:
-                logger.warning(f"[Worker] JSON 파싱 실패: {v[:100]}..." if len(v) > 100 else f"[Worker] JSON 파싱 실패: {v}")
+            if v_stripped:
+                logger.warning(f"[Worker] JSON 파싱 실패: {v_stripped[:100]}..." if len(v_stripped) > 100 else f"[Worker] JSON 파싱 실패: {v_stripped}")
             return {}
     return {}
 
@@ -53,6 +61,25 @@ def _ensure_list(v: Any) -> List[Any]:
         except Exception:
             return []
     return []
+
+
+def _fill_survey_defaults(survey_data: Dict[str, Any]) -> Dict[str, Any]:
+    """🔥 P0 FIX: survey_data가 비어있어도 거절/사과 없이 작성되도록 기본값 채우기"""
+    defaults = {
+        "industry": "(일반 비즈니스)",
+        "revenue": "(미입력)",
+        "painPoint": "(성장/수익 개선)",
+        "goal": "(안정적 성장)",
+        "time": "(풀타임)",
+    }
+    
+    result = dict(survey_data)  # 복사
+    
+    for key, default_val in defaults.items():
+        if not result.get(key):
+            result[key] = default_val
+    
+    return result
 
 
 class ReportWorker:
@@ -91,6 +118,9 @@ class ReportWorker:
         input_json = _ensure_dict(job.get("input_json") or job.get("input_data") or {})
         survey_data = _ensure_dict(input_json.get("survey_data") or input_json.get("survey") or {})
         user_question = (input_json.get("user_question") or input_json.get("question") or "").strip()
+        
+        # 🔥 P0 FIX: survey_data 기본값 채우기 (거절/사과 방지)
+        survey_data = _fill_survey_defaults(survey_data)
 
         # saju_result can be nested
         saju_result = _ensure_dict(input_json.get("saju_result") or input_json.get("saju") or job.get("saju_json") or {})

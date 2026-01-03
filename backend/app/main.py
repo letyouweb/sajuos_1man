@@ -9,6 +9,7 @@ SajuOS V1.0 하이브리드 엔진 - Main App
 import os
 import logging
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from importlib import import_module
 
@@ -29,6 +30,7 @@ def get_git_sha() -> str:
     return "unknown"
 
 GIT_SHA = get_git_sha()
+BUILD_TIME = os.environ.get("BUILD_TIME") or datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 app = FastAPI(title="SajuOS V1.0", version="1.0.0")
 
@@ -42,7 +44,12 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "git_sha": GIT_SHA}
+    return {
+        "status": "ok",
+        "git_sha": GIT_SHA,
+        "build_time": BUILD_TIME,
+        "version": "1.0.0",
+    }
 
 @app.get("/")
 async def root():
@@ -72,7 +79,9 @@ _safe_include_router("app.routers.debug_engine", "/api/v1", ["Debug Engine"], "d
 @app.on_event("startup")
 async def startup():
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(f"🚀 SajuOS V1.0 하이브리드 엔진 가동 시작 (SHA: {GIT_SHA})")
+    logger.info(f"🚀 SajuOS V1.0 하이브리드 엔진 가동 시작")
+    logger.info(f"   GIT_SHA: {GIT_SHA}")
+    logger.info(f"   BUILD_TIME: {BUILD_TIME}")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     app.state.rulestore = None

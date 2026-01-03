@@ -139,7 +139,7 @@ export default function SurveyForm({ onComplete, onSkip }: SurveyFormProps) {
       {/* 4. 목표 */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          2026년 가장 중요한 목표 1개 <span className="text-red-500">*</span>
+          {new Date().getFullYear() + 1}년 가장 중요한 목표 1개 <span className="text-red-500">*</span>
         </label>
         <input
           type="text"

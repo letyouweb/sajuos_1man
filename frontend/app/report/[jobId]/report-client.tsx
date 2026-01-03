@@ -366,6 +366,9 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     // 🔥 P0 FIX: target_year는 backend 단일 소스에서만
     const targetYear = job?.target_year || input?.target_year || new Date().getFullYear() + 1;
     
+    // 🔥 P0 FIX: ready 플래그로 빈 본문 노출 방지
+    const isReady = data?.ready ?? true;  // 백엔드에서 ready 없으면 기본 true (하위 호환)
+    
     const boundary = saju?.quality?.solar_term_boundary ?? null;
     const birthInfo = saju?.birth_info || "";
     const dayMaster = saju?.day_master || "";
@@ -377,6 +380,37 @@ export default function ReportClient({ jobId, token }: ReportClientProps) {
     
     // 🔥🔥🔥 P0 FIX: 정확도 계산 (복합 조건)
     const accuracy = calculateAccuracy(data);
+    
+    // 🔥 P0 FIX: ready=false면 생성중 UI 표시
+    if (!isReady) {
+      return (
+        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-purple-50 py-8">
+          <div className="container mx-auto px-4 max-w-4xl">
+            <Header brandName={BRAND_NAME} targetYear={targetYear} />
+            
+            <div className="bg-white rounded-2xl shadow-lg p-8">
+              <div className="text-center mb-6">
+                <div className="text-5xl mb-4">📝</div>
+                <h2 className="text-xl font-bold text-gray-800">콘텐츠 준비 중</h2>
+                <p className="text-gray-600 mt-2">리포트 생성이 완료되었으나 콘텐츠를 준비 중입니다.</p>
+                <p className="text-gray-500 text-sm mt-2">잠시 후 새로고침해주세요.</p>
+              </div>
+              
+              <div className="flex justify-center">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 transition"
+                >
+                  🔄 새로고침
+                </button>
+              </div>
+            </div>
+            
+            <Footer brandName={BRAND_NAME} />
+          </div>
+        </div>
+      );
+    }
     
     return (
       <>

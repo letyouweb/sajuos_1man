@@ -424,8 +424,13 @@ async def view_report(job_id: str, token: str = Query(..., description="Access t
     
     input_json["saju_result"] = saju_result
     
+    # 🔥 P0 FIX: ready 플래그 계산 (빈 본문 노출 방지)
+    completed_sections = len([s for s in sections_normalized if len(s.get("markdown", "")) >= 200])
+    total_markdown_length = sum(len(s.get("markdown", "")) for s in sections_normalized)
+    is_ready = completed_sections >= 1 and total_markdown_length >= 500
+    
     # 7) 응답 반환
-    logger.info(f"[Reports] view_report: {job_id} | sections={len(sections_normalized)} | markdown_length={len(full_markdown)}")
+    logger.info(f"[Reports] view_report: {job_id} | sections={len(sections_normalized)} | markdown_length={len(full_markdown)} | ready={is_ready}")
     
     return {
         "job": {
@@ -435,11 +440,14 @@ async def view_report(job_id: str, token: str = Query(..., description="Access t
             "result_json": job.get("result_json"),
             "completed_at": job.get("completed_at"),
             "error": job.get("error"),
+            "target_year": input_json.get("target_year"),  # 🔥 P0: target_year 추가
         },
         "input": input_json,
         "sections": sections_normalized,
         "full_markdown": full_markdown,
         "section_count": len(sections_normalized),
+        "ready": is_ready,  # 🔥 P0: 콘텐츠 준비 완료 여부
+        "completed_section_count": completed_sections,  # 🔥 P0: 실제 완료된 섹션 수
     }
 
 
