@@ -18,7 +18,7 @@ async def recover_interrupted_jobs(rulestore: Any = None) -> int:
     서버 시작 시 미완료 Job 복구
     
     복구 대상:
-    1. status = 'generating' (진행 중이었던 것)
+    1. status = 'running' (진행 중이었던 것) - 🔥 P0 FIX: DB constraint에 맞춤
     2. status = 'queued' 이면서 생성된 지 1시간 이내
     
     Returns:
@@ -38,12 +38,13 @@ async def recover_interrupted_jobs(rulestore: Any = None) -> int:
     recovered_count = 0
     
     try:
-        # 1. 진행 중이었던 Job (generating)
-        generating_jobs = await supabase_service.get_jobs_by_status("generating")
+        # 🔥 P0 FIX: "generating" → "running" (DB constraint: queued/running/completed/failed만 허용)
+        # 1. 진행 중이었던 Job (running)
+        running_jobs = await supabase_service.get_jobs_by_status("running")
         
-        for job in generating_jobs:
+        for job in running_jobs:
             job_id = job["id"]
-            logger.info(f"[Recovery] 🔄 미완료 Job 발견: {job_id} (status=generating)")
+            logger.info(f"[Recovery] 🔄 미완료 Job 발견: {job_id} (status=running)")
             
             asyncio.create_task(
                 report_worker.run_job(job_id, rulestore)

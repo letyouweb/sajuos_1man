@@ -239,7 +239,7 @@ class SupabaseStore:
         
         # 섹션 상태 업데이트
         client.table("report_sections").update({
-            "status": "generating",
+            "status": "running",  # 🔥 P0 FIX: generating → running (DB constraint)
             "started_at": datetime.utcnow().isoformat(),
         }).eq("report_id", report_id).eq("section_id", section_id).execute()
         
@@ -258,7 +258,7 @@ class SupabaseStore:
         
         await self.update_report_status(
             report_id,
-            status="generating",
+            status="running",  # 🔥 P0 FIX: generating → running (DB constraint)
             progress=progress,
             current_step=f"{section_title} 생성 중..."
         )
@@ -296,7 +296,7 @@ class SupabaseStore:
         
         await self.update_report_status(
             report_id,
-            status="generating",
+            status="running",  # 🔥 P0 FIX: generating → running (DB constraint)
             progress=progress,
             current_step=f"{section_title} 완료"
         )

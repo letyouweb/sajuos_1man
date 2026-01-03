@@ -16,16 +16,17 @@ from app.services.supabase_client import get_supabase_client, is_supabase_availa
 logger = logging.getLogger(__name__)
 
 
+# 🔥 P0 FIX: DB constraint에 맞는 status만 사용 (queued/running/completed/failed)
 class ReportStatus(str, Enum):
-    PENDING = "pending"
-    GENERATING = "generating"
+    PENDING = "queued"     # 🔥 pending → queued (DB constraint)
+    RUNNING = "running"    # 🔥 generating → running (DB constraint)
     COMPLETED = "completed"
     FAILED = "failed"
 
 
 class SectionStatus(str, Enum):
     PENDING = "pending"
-    GENERATING = "generating"
+    RUNNING = "running"    # 🔥 generating → running
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
@@ -286,7 +287,7 @@ class ReportDBService:
         
         try:
             update_data = {"status": status.value}
-            if status == SectionStatus.GENERATING:
+            if status == SectionStatus.RUNNING:  # 🔥 GENERATING → RUNNING
                 update_data["started_at"] = datetime.utcnow().isoformat()
                 update_data["attempt_count"] = self._client.table("report_sections")\
                     .select("attempt_count")\
